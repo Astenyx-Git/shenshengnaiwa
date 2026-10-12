@@ -6,12 +6,16 @@
 """
 import base64, os, pathlib
 
-# 相对此脚本的根目录 (此文件位于 nw/，素材在 nw/assets/)
+# 相对此脚本的根目录 (此文件位于仓库根目录)
+# 素材只从 art/ 读 —— 那是本作**实际用到**的 15 张贴图，随仓库一起提交，
+# 所以干净检出后本脚本可以直接运行，不需要先抓素材。
+# （art/ 的来源与上游仓库见 README.md；完整素材集由 fetch_assets.py 抓到 assets/，
+#   那个目录很大且是他人版权内容，已 gitignore。）
 ROOT = pathlib.Path(__file__).resolve().parent
-A = ROOT / "assets" / "douluo" / "nai-dou-luo.pages.dev" / "assets"
+A = ROOT / "art" / "douluo"      # 角色与敌兵，取自「奶斗罗」
 # 「合成大奶蛙」的水果贴图：11 级是合成链最高产物，本作拿它当主角与开始页图标
 # （源游戏里这一级写作「神奶蛙」，本作按用户要求统一叫「神圣奶蛙」）
-H = ROOT / "assets" / "hecheng" / "yhsome.github.io" / "BigNaiWa" / "assets" / "fruits"
+H = ROOT / "art" / "bignaiwa"
 
 # (game里引用名, 源文件, 用法)
 IMGS = [
