@@ -80,6 +80,8 @@
   .board li .nm{font-size:12.5px;color:var(--mute);max-width:120px;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
   .stage.night .board li .nm{color:#8f98bd}
+  .board li .dur{font:600 11.5px ui-monospace,monospace;color:var(--mute);flex:none}
+  .stage.night .board li .dur{color:#8f98bd}
   .board li .dt{font-size:11px;color:var(--mute);flex:none;min-width:74px;text-align:right}
   .board .tabs{display:flex;gap:6px}
   .board .tab{font:600 13px ui-monospace,monospace;padding:6px 20px;border-radius:999px;
@@ -319,6 +321,82 @@ const REMOTE = {
 // 写成函数而不是常量：配置可能被运行时改动，也让自检能临时打开开关
 const remoteOn = () => !!(REMOTE.user && REMOTE.secret);
 const NAME_KEY  = 'hnw.name';
+const SCAN_MAX  = 60;   // 读取时最多校验多少条，防垃圾记录拖慢
+
+// ---------- 记录格式规范与校验 ----------
+// 目的：让「直接往库里写一条记录」这种做法大概率被读端剔除。
+// 手段不是保密（源码公开，藏不住），而是【让记录必须自洽】：
+//
+// 本作的分数完全由「计分帧数」决定 —— 全代码只有一处 score 修改点：
+//     score += 0.18 + speed * 0.002;   speed = min(16, 5 + score * 0.0011)
+// 没有任何随机、没有道具加成。所以给定帧数 f，分数是唯一确定的。
+// 于是「分数 ↔ 帧数」构成一条物理不变量：瞎填的分数必然对不上。
+//
+// 记录字段（v2）：
+//   v  格式版本
+//   n  昵称
+//   s  分数（整数）
+//   f  计分帧数（整数）
+//   t  提交时间戳（ms，整数）
+//   c  校验码（对上面字段 + 盐值算 FNV-1a）
+//
+// ⚠️ 这仍然是「提高作弊成本」，不是「防住作弊」：
+//    盐值和公式都在源码里，有心人照着实现一遍就能造出合法记录。
+//    它挡住的是【盲写】——只看到字段名、没读源码就想直接 POST 的人，
+//    以及手抖改分数的人。真要防住必须有服务端校验。
+const REC_VER   = 2;
+const MAX_PLAY_FRAMES = 180000;        // 约 50 分钟，再长不合常理
+const MIN_REC_TS = 1704067200000;      // 2024-01-01，比这更早的戳视为异常
+const MAX_TS_SKEW = 86400000;          // 允许比本机时间快 1 天（时钟误差）
+const SALT = 'hnw-2026';               // 校验码盐值（源码可见，只挡盲写）
+
+// 给定计分帧数，算出分数。必须与 step() 里的累加**逐位一致**，
+// 否则合法记录会被误杀 —— 自检里有断言直接对比两者。
+function scoreAfter(frames){
+  let score = 0, speed = SPEED0;
+  const n = Math.min(frames | 0, MAX_PLAY_FRAMES);
+  for (let i = 0; i < n; i++){
+    score += 0.18 + speed * 0.002;
+    speed = Math.min(SPEED_MAX, SPEED0 + score * SPEEDUP_PER_SCORE);
+  }
+  return score;
+}
+
+function recChecksum(rec){
+  const s = rec.v + '|' + rec.n + '|' + rec.s + '|' + rec.f + '|' + rec.t + '|' + SALT;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++){
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+function makeRecord(name, score, frames, ts){
+  const rec = { v: REC_VER, n: cleanName(name) || '匿名玩家',
+                s: Math.floor(score), f: Math.floor(frames),
+                t: Math.floor(ts || Date.now()) };
+  rec.c = recChecksum(rec);
+  return rec;
+}
+
+// 返回 null = 合法；否则返回拒绝原因（用于诊断显示）
+function verifyRecord(raw){
+  let rec;
+  try { rec = JSON.parse(raw); } catch(e){ return '不是 JSON'; }
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return '不是对象';
+  if (rec.v !== REC_VER)                return '版本不符';
+  if (typeof rec.n !== 'string' || !rec.n.trim()) return '昵称缺失';
+  if (!Number.isInteger(rec.s) || rec.s < 1)      return '分数非法';
+  if (!Number.isInteger(rec.f) || rec.f < 1 || rec.f > MAX_PLAY_FRAMES) return '帧数越界';
+  if (!Number.isInteger(rec.t) || rec.t < MIN_REC_TS || rec.t > Date.now() + MAX_TS_SKEW)
+    return '时间戳非法';
+  if (typeof rec.c !== 'string')        return '缺校验码';
+  if (recChecksum(rec) !== rec.c)       return '校验码不符';
+  // 核心：分数必须能由帧数精确复现
+  if (Math.floor(scoreAfter(rec.f)) !== rec.s) return '分数与帧数不自洽';
+  return null;
+}
 
 const cleanName = raw => {
   let n = String(raw == null ? '' : raw).replace(/[\u0000-\u001f\u007f]/g, '').trim();
@@ -357,16 +435,18 @@ async function remotePost(params){
   }
 }
 
-async function remoteSubmit(name, score){
+async function remoteSubmit(name, score, frames){
   if (!remoteOn()) throw new Error('未配置全网榜单');
   if (submitting) return false;
   if (Date.now() - lastSubmitAt < REMOTE.minGap) throw new Error('刚提交过啦，稍等一下');
   if (!(score > 0) || score > REMOTE.maxScore) throw new Error('分数不在合理范围');
+  if (!Number.isInteger(frames) || frames < 1 || frames > MAX_PLAY_FRAMES)
+    throw new Error('帧数不在合理范围');
   submitting = true;
   try {
+    const rec = makeRecord(name, score, frames);
     const tag = REMOTE.prefix + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
-    await remotePost({ action:'update', tag,
-      value: JSON.stringify({ n: cleanName(name) || '匿名玩家', s: Math.floor(score), t: Date.now() }) });
+    await remotePost({ action:'update', tag, value: JSON.stringify(rec) });
     lastSubmitAt = Date.now();
     return true;
   } finally { submitting = false; }
@@ -383,19 +463,28 @@ async function remoteTop(){
       if (k.indexOf(REMOTE.prefix) === 0 && typeof obj[k] === 'string') bag[k] = obj[k];
     no += 100;
   }
-  const all = [];
+  // 先按提交时间倒序，再逐条校验，凑够 window 条合法记录就停。
+  // 扫描条数封顶（SCAN_MAX）是为了防「灌一堆垃圾记录把读取拖慢」。
+  const entries = [];
   for (const tag in bag){
-    let rec;
-    try { rec = JSON.parse(bag[tag]); } catch(e){ continue; }      // 脏数据直接跳过
-    const s = Number(rec && rec.s);
-    if (!isFinite(s) || s < 0 || s > REMOTE.maxScore) continue;    // 过滤离谱分数
-    all.push({ name: String((rec && rec.n) || '匿名玩家').slice(0, 16),
-               score: s, t: Number(rec && rec.t) || 0 });
+    let rec = null, bad = false;
+    try { rec = JSON.parse(bag[tag]); } catch(e){ bad = true; }
+    entries.push({ tag, rec, bad, t: bad ? 0 : (Number(rec && rec.t) || 0) });
   }
-  all.sort((a,b) => b.t - a.t);
-  const fresh = all.slice(0, REMOTE.window);                       // 先按时间取最近 N 条
-  fresh.sort((a,b) => b.score - a.score || b.t - a.t);             // 再按分数排
-  return fresh;
+  entries.sort((a,b) => b.t - a.t);
+
+  const rows = [];
+  let rejected = 0, scanned = 0;
+  for (const e of entries){
+    if (rows.length >= REMOTE.window || scanned >= SCAN_MAX) break;
+    scanned++;
+    if (e.bad){ rejected++; continue; }
+    if (verifyRecord(bag[e.tag])){ rejected++; continue; }   // 不自洽 / 缺字段 / 校验码不符
+    rows.push({ name: String(e.rec.n).slice(0, 16), score: e.rec.s,
+                frames: e.rec.f, t: e.rec.t });
+  }
+  rows.sort((a,b) => b.score - a.score || b.t - a.t);   // 窗口内再按分数排
+  return { rows, rejected, scanned, total: entries.length };
 }
 
 // ===================== 工具 =====================
@@ -432,7 +521,7 @@ function rand(a,b){ return a + Math.random()*(b-a); }
 function pick(arr){ return arr[(Math.random()*arr.length)|0]; }
 
 // ===================== 状态 =====================
-let player, obs, clouds_, groundX, speed, score, hi, state, frames, dayMode, nextNight, nightFlash;
+let player, obs, clouds_, groundX, speed, score, hi, state, frames, playFrames, dayMode, nextNight, nightFlash;
 let groundDeco = [];   // 地面装饰（草/奶滴），预先随机排布滚动
 // 必须声明在 reset() 之前：reset() 在模块顶层就会被调用一次，
 // 而 let 有暂时性死区，声明在后面会直接抛 ReferenceError 让整个脚本挂掉
@@ -443,7 +532,7 @@ function reset(){
   player = {x:PLAYER_X, y:GROUND_Y-90, w:74, h:90, vy:0, onGround:true,
     frame:0, frameT:0, duck:false, duckT:0, dead:false, hurtT:0};
   obs = []; clouds_ = [];
-  groundX = 0; speed = SPEED0; score = 0; frames = 0; distSinceSpawn = 1e9;
+  groundX = 0; speed = SPEED0; score = 0; frames = 0; playFrames = 0; distSinceSpawn = 1e9;
   rollNextGap();
   dayMode = true; nextNight = NIGHT_AT[0]; nightFlash = 0;
   // 必须同步 CSS 类：reset 只把 dayMode 置回白天，但 stage 上的 .night 类不会自己消失。
@@ -644,6 +733,7 @@ function step(){
 
   if (state==='playing'){
     score += 0.18 + speed*0.002;
+    playFrames++;          // 计分帧数：分数完全由它决定（见 scoreAfter），用于校验记录真伪
     scoreEl.textContent = Math.floor(score);
 
     // 速度
@@ -809,6 +899,11 @@ const nickInput = document.getElementById('nickInput');
 const boardMsgEl = document.getElementById('boardMsg');
 let boardTab = 'local', lastRemoteMsg = '';
 
+const fmtDur = f => {
+  if (!f || f < 1) return '—';
+  const sec = Math.round(f / 60);
+  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+};
 const fmtTs = ts => {
   const d = new Date(ts), p = n => String(n).padStart(2, '0');
   return p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
@@ -837,6 +932,10 @@ function renderRows(rows, emptyText){
     if (r.name){
       const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.name;
       li.appendChild(nm);
+    }
+    if (r.frames){
+      const du = document.createElement('span'); du.className = 'dur'; du.textContent = fmtDur(r.frames);
+      li.appendChild(du);
     }
     const dt = document.createElement('span'); dt.className = 'dt';
     const ts = r.ts || r.t || 0;
@@ -874,9 +973,11 @@ async function showTab(tab){
   renderRows([], '正在读取…');
   setMsg(lastRemoteMsg || '正在读取…');
   try {
-    const rows = await remoteTop();
-    renderRows(rows, '最近还没有人提交，快去玩一局');
-    if (!lastRemoteMsg) setMsg('已读取 ' + rows.length + ' 条', 'ok');
+    const res = await remoteTop();
+    renderRows(res.rows, '最近还没有人提交，快去玩一局');
+    boardSubEl.textContent = '最近 ' + REMOTE.window + ' 次提交 · 全网共享'
+      + (res.rejected ? ' · 已剔除 ' + res.rejected + ' 条不自洽记录' : '');
+    if (!lastRemoteMsg) setMsg('已读取 ' + res.rows.length + ' 条合法记录', 'ok');
   } catch(e){
     renderRows([], '读取失败');
     setMsg('读取失败：' + ((e && e.message) || e), 'bad');
@@ -918,7 +1019,7 @@ function onGameOver(){
   lastRemoteMsg = '';
   if (remoteOn() && allowRemoteSubmit && final > 0){
     lastRemoteMsg = '正在提交到全网榜…';
-    remoteSubmit(who, final)
+    remoteSubmit(who, final, playFrames)
       .then(() => { lastRemoteMsg = '已上榜 ✓ ' + who + ' · ' + final + ' 分'; })
       .catch(err => { lastRemoteMsg = '提交失败：' + ((err && err.message) || err); });
   }
@@ -1352,7 +1453,7 @@ function runSelfTest(){
       add('localDBkind', k);
       const snap = await LDB.all();
       const MARK = 987654;
-      await LDB.add({score: MARK, ts: 1700000000000, dur: 1, spd: 1});
+      await LDB.add({score: MARK, ts: 1791800000000, dur: 1, spd: 1});
       const after = await LDB.all();
       add('localDBwriteRead', (after.length === snap.length + 1 &&
           after.some(r => r.score === MARK)) ? 'yes' : 'NO');
@@ -1376,41 +1477,78 @@ function runSelfTest(){
     window.fetch = (url, opt) => {
       reqs.push({ url, body: opt && opt.body });
       if (mode === 'write') return Promise.resolve({ ok:true, text: () => Promise.resolve('{}') });
+      // 混入两类伪造记录，验证校验器能把它们剔掉
+      const g1 = makeRecord('阿花', scoreAfter(3000), 3000, 1791800005000);   // 合法
+      const g2 = makeRecord('阿狗', scoreAfter(6000), 6000, 1791800009000);   // 合法
+      const f1 = JSON.parse(JSON.stringify(g2));                              // 手改分数
+      f1.n = '改分党'; f1.s = f1.s * 10; f1.t = 1791800008000;                // → 校验码不符
+      const f2 = { v: REC_VER, n:'自洽党', s: 999999, f: 100, t: 1791800007000 };
+      f2.c = recChecksum(f2);                                                 // 校验码对，但分数与帧数不自洽
       return Promise.resolve({ ok:true, text: () => Promise.resolve(JSON.stringify({
-        'hnw_t1_aaaa': JSON.stringify({ n:'阿花', s:120, t:5000 }),
-        'hnw_t2_bbbb': JSON.stringify({ n:'阿狗', s:900, t:9000 }),
-        'hnw_t3_cccc': JSON.stringify({ n:'离谱', s:999999999, t:9999 }),  // 超上限 → 应被过滤
-        'hnw_t4_dddd': '这不是 JSON',                                      // 脏数据 → 应被跳过
-        'other_x':     JSON.stringify({ n:'别人的', s:1, t:1 }),           // 前缀不符 → 应被忽略
+        'hnw_g1_aaaa': JSON.stringify(g1),
+        'hnw_g2_bbbb': JSON.stringify(g2),
+        'hnw_f1_cccc': JSON.stringify(f1),
+        'hnw_f2_dddd': JSON.stringify(f2),
+        'hnw_f3_eeee': '这不是 JSON',
+        'other_x':     JSON.stringify({ n:'别人的', s:1, t:1 }),   // 前缀不符 → 应被忽略
       })) });
     };
     try {
       REMOTE.user = 'tu'; REMOTE.secret = 'ts';
       add('remoteConfigured', remoteOn() ? 'yes(测试态)' : 'NO');
 
-      // 分数校验（此时还没成功提交过，不会被限频挡住）
+      // 分数 / 帧数校验（此时还没成功提交过，不会被限频挡住）
+      const F = 1000, S = Math.floor(scoreAfter(F));
       let guard = 'NO';
-      try { await remoteSubmit('测试蛙', 0); } catch(e){ guard = /范围/.test(e.message) ? 'yes' : 'NO:' + e.message; }
+      try { await remoteSubmit('测试蛙', 0, F); } catch(e){ guard = /范围/.test(e.message) ? 'yes' : 'NO:' + e.message; }
       add('remoteScoreGuard', guard);
+      let fguard = 'NO';
+      try { await remoteSubmit('测试蛙', S, 0); } catch(e){ fguard = /帧数/.test(e.message) ? 'yes' : 'NO:' + e.message; }
+      add('remoteFramesGuard', fguard);
 
-      // 写入：检查 POST 体
-      await remoteSubmit('测试蛙', 321);
+      // 写入：检查 POST 体里带齐了自洽字段
+      await remoteSubmit('测试蛙', S, F);
       const b1 = new URLSearchParams(reqs[reqs.length-1].body);
       add('remoteWriteAction', b1.get('action') + ' user=' + b1.get('user'));
       add('remoteWriteTag', String(b1.get('tag')||'').indexOf(REMOTE.prefix) === 0 ? 'yes' : 'NO');
       const v = JSON.parse(b1.get('value'));
-      add('remoteWriteValue', 'n=' + v.n + ' s=' + v.s + ' t=' + (v.t > 0 ? 'ok' : 'NO'));
+      add('remoteWriteValue', 'v=' + v.v + ' s=' + v.s + ' f=' + v.f + ' n=' + v.n +
+                              ' c=' + (v.c ? 'ok' : 'NO'));
+      add('remoteWriteSelfCheck', verifyRecord(b1.get('value')) === null ? 'yes' : 'NO');
 
       // 限频：立刻再提一次应被拒
       let gap = 'NO';
-      try { await remoteSubmit('测试蛙', 322); } catch(e){ gap = /稍等/.test(e.message) ? 'yes' : 'NO:' + e.message; }
+      try { await remoteSubmit('测试蛙', S, F); } catch(e){ gap = /稍等/.test(e.message) ? 'yes' : 'NO:' + e.message; }
       add('remoteRateLimit', gap);
 
       // 读取：脏数据过滤 + 排序
       mode = 'read';
-      const rows = await remoteTop();
-      add('remoteReadRows', rows.length);                       // 应为 2
-      add('remoteReadOrder', rows.map(r => r.score).join('>'));  // 应为 900>120
+      const res = await remoteTop();
+      add('remoteReadRows', res.rows.length);                          // 应为 2（只留合法的）
+      add('remoteReadRejected', res.rejected);                         // 应为 3（改分 / 不自洽 / 非 JSON）
+      add('remoteReadOrderDesc', (res.rows.length >= 2 && res.rows[0].score > res.rows[1].score) ? 'yes' : 'NO');
+
+      // 校验器逐条体检：合法记录必须放行，三类伪造必须各自命中原因
+      const okRec = makeRecord('正常', scoreAfter(2000), 2000, 1791800000000);
+      add('verifyValid', verifyRecord(JSON.stringify(okRec)) === null ? 'yes' : 'NO');
+      const tampered = JSON.parse(JSON.stringify(okRec)); tampered.s += 1;
+      add('verifyTampered', verifyRecord(JSON.stringify(tampered)) || 'NO(未拦住)');
+      const selfConsistent = { v: REC_VER, n:'x', s: 999999, f: 100, t: 1791800000000 };
+      selfConsistent.c = recChecksum(selfConsistent);
+      add('verifyInconsistent', verifyRecord(JSON.stringify(selfConsistent)) || 'NO(未拦住)');
+      const noVer = JSON.parse(JSON.stringify(okRec)); noVer.v = 1;
+      add('verifyOldVersion', verifyRecord(JSON.stringify(noVer)) || 'NO(未拦住)');
+      const hugeF = JSON.parse(JSON.stringify(okRec)); hugeF.f = MAX_PLAY_FRAMES + 1;
+      add('verifyFramesGuard', verifyRecord(JSON.stringify(hugeF)) || 'NO(未拦住)');
+
+      // 关键不变量：scoreAfter(frames) 必须与 step() 里逐帧累加的分数完全一致，
+      // 否则合法记录会被自己的校验器误杀
+      reset(); startRun(); obs = [];
+      for (let i=0;i<1500;i++) step();
+      add('scoreAfterMatchesLive',
+        Math.floor(scoreAfter(playFrames)) === Math.floor(score) ? 'yes'
+          : 'NO live=' + Math.floor(score) + ' calc=' + Math.floor(scoreAfter(playFrames)) +
+            ' frames=' + playFrames);
       const rb = new URLSearchParams(reqs[reqs.length-1].body);
       add('remoteReadAction', rb.get('action') + ' tag=' + rb.get('tag'));
     } catch(e){
@@ -1427,8 +1565,8 @@ function runSelfTest(){
       if (!remoteOn()) add('remoteLive', '未配置凭据');
       else {
         try {
-          const rows = await remoteTop();
-          add('remoteLive', 'ok 读到 ' + rows.length + ' 条');
+          const res = await remoteTop();
+          add('remoteLive', 'ok 读到 ' + res.rows.length + ' 条合法 / 剔除 ' + res.rejected + ' 条');
         } catch(e){
           add('remoteLive', 'FAIL ' + ((e && e.message) || e));
         }
