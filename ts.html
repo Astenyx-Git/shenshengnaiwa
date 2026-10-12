@@ -1,0 +1,114 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+ <head>
+  <title>TinyWebDB服务器 - APPInventor网络微数据库</title>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+	<meta name="Author" content="800M.net">
+  <meta name="Keywords" content="app,appinventor,tinywebdb,服务器,空间,数据库, 网络微数据库">
+  <meta name="Description" content="APP Inventor专用的国内TinyWebDB服务器，可免费在线申请，独立账号，数据互不干扰，支持使用API进行数据的增删查改，可以用APP或者WEB管理网络数据库。">
+  <style>
+  body {background-color: #AAAAFF; }
+  #main {margin: 0 auto; width:830px; background-color: #FFFFFF; overflow: auto;}
+  #info {width: 420px; float: left; height: 100%; padding: 10px; }
+  #detail {padding: 0px 10px; font-size: 18px; line-height: 24px; }
+  h1 {text-align: center; margin: 40px 0px; }
+  .forms {width: 380px; float: left; margin-top: 40px;}
+  .hr {height: 2px; width: 333px; float: left; margin: 20px 30px; background-color: #AAAAFF; }
+  .small {font-size: 14px;}
+	.search {margin: 10px 40px; white-space:nowrap; text-align: center; float: left; }
+	.label_button{width:110px;height:32px;border:0;color:#fff; background:#3FB30E;font-weight:bold;font:bold 14px arial;padding:0; padding-top:3px;cursor:pointer;vertical-align:middle}
+	.input_text {width:180px;height:24px;line-height:24px;font:14px arial;padding:2px 5px;margin-right:5px;border:2px solid #3FB30E;outline:0;vertical-align:middle}
+
+  </style>
+ </head>
+
+ <body>
+
+<div id="body">
+ <div id="header" style="height: 60px;"></div>
+ <div id="main">
+ 
+ <div class="forms">
+
+ <div class="form">
+ <form target="_blank" action="http://www.baidu.com/s">
+ 
+	<div class='search'>
+			<input id="keyword" name='wd' size='14' class='input_text' type='text' value="tinywebdb">
+			<input value='百度一下' class='label_button' type='submit'>
+	</div>
+ </form>
+ </div>
+
+<div class="hr"></div>
+
+ <div class="form">
+ <form action="/login" method="POST">
+ 
+	<div class='search'>
+			<input value='用户名' class='label_button' type='button'>
+			<input name='user' size='14' class='input_text' type='text' value="share">
+	</div>
+	<div class='search'>
+			<input value='密码' class='label_button' type='button'>
+			<input name='pass' size='14' class='input_text' type='password' value="share">
+	</div>
+	<div class='search'>
+			<input size='14' class='label_button' type='submit' value="登录" style="width: 150px; margin: 0px 80px; ">
+	</div>
+ </form>
+ </div>
+
+<div class="hr"></div>
+
+ <div class="form">
+ <form action="/signup" method="POST">
+ 
+	<div class='search'>
+			<input value='用户名' class='label_button' type='button'>
+			<input name='user' size='14' class='input_text' type='text'>
+	</div>
+	<div class='search'>
+			<input value='密码' class='label_button' type='button'>
+			<input name='pw1' size='14' class='input_text' type='password'>
+	</div>
+	<div class='search'>
+			<input value='重复密码' class='label_button' type='button'>
+			<input name='pw2' size='14' class='input_text' type='password'>
+	</div>
+	<div class='search'>
+			<input value='密保问题' class='label_button' type='button'>
+			<input name='ask' size='14' class='input_text' type='text' value='1+1=?' >
+	</div>
+	<div class='search'>
+			<input value='密保答案' class='label_button' type='button'>
+			<input name='ans' size='14' class='input_text' type='text' value='2'>
+	</div>
+	<div class='search'>
+			<input size='14' class='label_button' type='submit' value="注册" style="width: 150px; margin: 0px 80px; margin-bottom: 20px; ">
+	</div>
+ </form>
+ </div>
+
+ </div>
+
+ <div id="info">
+ <h1>TinyWebDB服务器使用说明</h1>
+ <div id="detail">
+ <p>&nbsp;&nbsp;&nbsp;&nbsp;在APP Inventor中，TinyWebDB服务器是网络存储中的网络微数据库，它是非可视组件，通过与Web服务通信来保存并读取信息。</p>
+ <p>&nbsp;&nbsp;&nbsp;&nbsp;原有的“TinyWebDB数据库”，功能很简单，仅仅是写入和读出，不能进行数据的批量查询，很难做出比较大的管理系统。</p>
+ <p>&nbsp;&nbsp;&nbsp;&nbsp;本站提供的TinyWebDB网络数据库，支持APP Inventor网络微数据库的所有操作，并且每个用户可以申请一个甚至多个数据库地址。由于每一个地址都包含用户名和用户名的密钥，相互独立，互不影响，数据库的安全性比较高。除此以外，每个数据库都可以独立管理，支持使用API进行增删查改操作。</p>
+ <p>&nbsp;&nbsp;&nbsp;&nbsp;共享账号测试：用户名和密码都是share</p>
+ <p>&nbsp;&nbsp;&nbsp;&nbsp;简易数据库管理器：<a href="tinywebdb.aia">源代码.AIA</a> <a href="tinywebdb.apk">应用.APK</a></p>
+ <p>&nbsp;&nbsp;&nbsp;&nbsp;网络数据库浏览器：<a href="JSONViewer.aia">源代码.AIA</a> <a href="JSONViewer.apk">应用.APK</a></p>
+ <p>&nbsp;&nbsp;&nbsp;&nbsp;用户QQ群：699948591 （出问题可联系）</p>
+</div>
+ </div>
+
+ </div>
+
+ <div id="footer" style="height: 60px;"></div>
+</div>
+
+ </body>
+</html>

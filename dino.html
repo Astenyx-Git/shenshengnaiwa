@@ -309,8 +309,8 @@ const LDB = (() => {
 // 配置留空 = 纯本地模式：不联网、不报错、功能照旧。
 const REMOTE = {
   url:      'https://tinywebdb.appinventor.space/api',
-  user:     '',      // ← 在 https://tinywebdb.appinventor.space 申请后填这里
-  secret:   '',      // ← 同上（免费，可申请多个库）
+  user:     'shensheng',    // 在 https://tinywebdb.appinventor.space 申请的库
+  secret:   'b78d47c5',     // 申请时拿到的【密钥】——注意不是注册时设的密码
   prefix:   'hnw_',  // 命名空间前缀，别蹭别人的
   window:   20,      // 只展示最近 20 条提交
   minGap:   3000,    // 两次提交的最小间隔
@@ -329,6 +329,9 @@ const saveName = n => { try { localStorage.setItem(NAME_KEY, cleanName(n)); } ca
 const myName   = () => loadName() || '匿名玩家';
 
 let lastSubmitAt = 0, submitting = false;
+// 自检 / 自动游玩模式下禁止向全网榜提交 ——
+// 那两个模式里的 AI 会撞死几十次，否则会把一堆假分数灌进真实榜单。
+let allowRemoteSubmit = true;
 
 async function remotePost(params){
   const body = new URLSearchParams();
@@ -913,7 +916,7 @@ function onGameOver(){
   LDB.add({score: final, name: who, ts: Date.now(), dur: frames, spd: +speed.toFixed(1)}).catch(()=>{});
   // 配了全网榜就顺带提交一份。未配置 / 网络失败都只写提示，绝不阻断游戏。
   lastRemoteMsg = '';
-  if (remoteOn() && final > 0){
+  if (remoteOn() && allowRemoteSubmit && final > 0){
     lastRemoteMsg = '正在提交到全网榜…';
     remoteSubmit(who, final)
       .then(() => { lastRemoteMsg = '已上榜 ✓ ' + who + ' · ' + final + ' 分'; })
@@ -966,6 +969,8 @@ requestAnimationFrame(loop);
 // 调试用：?auto=1 直接开跑，?auto=1&t=500 跑 500 帧（无头截图用）
 // ?selftest=1 跑渲染自检并把结果写进 <pre id="selftest">，配合 headless --dump-dom 读取
 const QS = new URLSearchParams(location.search);
+// 自检 / 自动游玩都是机器人在玩，绝不能把它们的分数写进真实榜单
+if (QS.get('selftest') || QS.get('auto')) allowRemoteSubmit = false;
 const _scale = () => cv.width / W;   // 逻辑坐标 → 设备像素
 
 function _px(lx, ly, lw, lh){
@@ -1413,6 +1418,21 @@ function runSelfTest(){
     } finally {
       REMOTE.user = sUser; REMOTE.secret = sSecret;   // 还原，别把测试态带出去
       window.fetch = realFetch;
+    }
+
+    // 11) 真实联网验证（可选）：?selftest=1&net=1
+    //     只做【读】，不写 —— 不往真实榜单灌测试数据。用来确认浏览器
+    //     从当前 origin（file:// 或 http(s)）跨域读写真的通。
+    if (QS.get('net')){
+      if (!remoteOn()) add('remoteLive', '未配置凭据');
+      else {
+        try {
+          const rows = await remoteTop();
+          add('remoteLive', 'ok 读到 ' + rows.length + ' 条');
+        } catch(e){
+          add('remoteLive', 'FAIL ' + ((e && e.message) || e));
+        }
+      }
     }
     add('DONE', '1');
   })();
