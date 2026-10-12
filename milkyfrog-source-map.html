@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>奶蛙游戏合集 · 源码地图</title>
+<style>
+:root{
+  --bg:#fbf9f4; --card:#ffffff; --ink:#1f2430; --mute:#6b7280; --line:#e8e2d6;
+  --gold:#f0b429; --gold-soft:#fff6e0; --green:#15803d; --green-soft:#e8f6ec;
+  --red:#b42318; --red-soft:#fdeceb; --blue:#1d4ed8; --blue-soft:#eaf0ff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:40px 22px 80px}
+h1{font-size:30px;margin:0 0 6px;letter-spacing:-.4px}
+h2{font-size:20px;margin:44px 0 14px;padding-left:11px;border-left:4px solid var(--gold)}
+.sub{color:var(--mute);font-size:14px;margin:0 0 26px}
+.note{background:var(--gold-soft);border:1px solid #f3dfae;border-radius:12px;padding:14px 18px;font-size:14px;margin:18px 0}
+.note b{color:#8a5a00}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.card h3{margin:0 0 4px;font-size:16px;display:flex;align-items:center;gap:8px}
+.card h3 .idx{display:inline-flex;width:22px;height:22px;border-radius:6px;background:var(--gold-soft);
+  color:#8a5a00;font-size:12px;align-items:center;justify-content:center;font-weight:700;flex:none}
+.route{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--mute);word-break:break-all}
+.real{font-size:13px;margin:8px 0 10px}
+.real a{color:var(--blue);text-decoration:none}
+.real a:hover{text-decoration:underline}
+.meta{font-size:12.5px;color:var(--mute);display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:10px 0}
+.meta dt{color:#9aa1ae}
+.meta dd{margin:0}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.tag{font-size:11.5px;padding:2px 8px;border-radius:999px;background:#f2eee4;color:#6b6355}
+.tag.gh{background:var(--green-soft);color:var(--green)}
+.tag.no{background:var(--red-soft);color:var(--red)}
+.tag.plat{background:var(--blue-soft);color:var(--blue)}
+.src{margin-top:10px;font-size:12.5px}
+.src a{display:inline-block;font-family:ui-monospace,Consolas,monospace;color:var(--green);
+  background:var(--green-soft);padding:3px 9px;border-radius:7px;text-decoration:none;word-break:break-all}
+.src a:hover{text-decoration:underline}
+table{width:100%;border-collapse:collapse;font-size:13.5px;background:var(--card);
+  border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:#f6f2e9;font-weight:700;font-size:12.5px;color:#6b6355}
+tr:last-child td{border-bottom:none}
+td.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+ul{padding-left:20px;margin:8px 0}
+li{margin:4px 0}
+code{background:#f2eee4;padding:1px 6px;border-radius:5px;font-size:12.5px;
+  font-family:ui-monospace,Consolas,monospace}
+footer{margin-top:50px;padding-top:20px;border-top:1px solid var(--line);color:var(--mute);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>🐸 奶蛙小游戏合集 · 源码地图</h1>
+<p class="sub">抓取时间 2026-10-08 · 共 22 个游戏 + 官网本体，逐个定位到真实托管地址与源码仓库</p>
+
+<div class="note">
+<b>最重要的一条结论：</b><code>milkyfrog.com/hecheng</code>、<code>/shenpao</code>、<code>/2048</code> 这些路由
+<b>并不是游戏本体</b>。整个 milkyfrog.com 是<u>一个 77 KB 的静态单页</u>，24 个路由返回的 HTML 完全一模一样（MD5 相同），
+由页内 JS 读 <code>location.pathname</code> 做客户端路由，命中卡片后在顶部弹出「去玩 →」横幅，把人送到<b>站外</b>的真实游戏地址。
+所以「22 个游戏」实际是 22 个不同作者、不同托管平台、不同技术栈的独立项目，奶蛙官网只做收录和跳转。
+</div>
+
+<h2>一、milkyfrog.com 本体</h2>
+<table>
+<tr><th style="width:130px">项目</th><th>内容</th></tr>
+<tr><td>类型</td><td>纯静态单页，<b>零框架、零构建</b>，手写原生 HTML/CSS/JS</td></tr>
+<tr><td>体积</td><td>index.html 77,484 B（所有 24 个路由字节数完全一致）+ 外部 <code>/styles.css</code></td></tr>
+<tr><td>路由</td><td>单页内 <code>history.pushState</code> + <code>popstate</code> 切换 <code>[data-page]</code> 区块；未命中的路径（如 <code>/zhua</code>）回落到首页</td></tr>
+<tr><td>核心逻辑</td><td>顶部 tab 切换 / 狂笑视频播放 / 首页 4 个推荐位（从带 New 的新游戏随机挑 2 个 + 按人气补满）/ 落地横幅</td></tr>
+<tr><td>数据来源</td><td><code>/game-stats.json</code> 每 10 分钟统计一次「去玩」人数；<code>/game-health.json</code> 每 3 小时从北京探活，连续两轮挂掉的游戏自动标记下线</td></tr>
+<tr><td>防扒</td><td>狂笑视频禁用右键菜单与拖拽</td></tr>
+</table>
+
+<div class="note">
+<b>抓奶蛙去哪了：</b><code>/game-stats.json</code> 里 <code>zhua: 8061</code>（8061 人玩过）依然存在，
+但当前页面 55 张卡片中已经<b>没有 zhua 的条目</b>，访问 <code>milkyfrog.com/zhua</code> 会静默回落到首页。
+游戏本身还活着 —— 作者在 <a href="https://github.com/yhsome/ZhuaNaiWa">yhsome/ZhuaNaiWa</a>，在线地址
+<a href="https://yhsome.github.io/ZhuaNaiWa/">yhsome.github.io/ZhuaNaiWa</a>。
+</div>
+
+<h2>二、22 个游戏逐一对照</h2>
+<div class="grid" id="cards"></div>
+
+<h2>三、按可看源码程度分类</h2>
+<table>
+<tr><th style="width:150px">类别</th><th style="width:70px">数量</th><th>游戏</th></tr>
+<tr><td>🟢 GitHub 仓库公开</td><td>10</td><td>合成大奶蛙、奶蛙jump、奶蛙放屁、抓奶蛙、奶蛙贪吃蛙、奶蛙五子棋、奶了个蛙、奶蛙一跳、奶蛙颜色大挑战、奶蛙工厂、奶蛙消消乐、奶蛙快跑*</td></tr>
+<tr><td>🔵 平台托管，源码不可见</td><td>3</td><td>奶蛙羽毛球、旅行奶蛙（哔哩哔哩 toy 平台）、奶蛙快跑（233 工坊）</td></tr>
+<tr><td>🔴 独立部署，仓库未公开</td><td>6</td><td>奶蛙神跑(naiwa.me)、召唤神龙(naiwa.games)、奶蛙2048超级版(0z.hk)、奶斗罗、奶蛙街舞、奶蛙鼓鼓碰、奶蛙的小窝</td></tr>
+</table>
+<p class="sub" style="margin-top:8px">* 奶蛙快跑：官网跳转到 233 工坊平台版本，但 GitHub 上有同名开源实现 <code>naiwa-play/naiwa-play.github.io</code>（<code>game.js</code> + <code>physics.js</code> + 像素素材）。</p>
+
+<h2>四、技术栈观察</h2>
+<ul>
+<li><b>Three.js 派（2 个）</b>：<b>奶蛙神跑</b>主脚本 589 KB（解压 1.39 MB，WebGL 出现 214 次）是全场最重的一个，真 3D；<b>奶蛙一跳</b> 165 KB 也用了 Three.js。</li>
+<li><b>自研物理派</b>：<b>合成大奶蛙</b>没引 matter.js，自己写了 PBD 位置约束求解（3 子步 × 6 迭代），还按贴图 alpha 用内接小圆生成碰撞箱（IoU 平均 0.91），README 写得像论文，是最值得读的一份源码。</li>
+<li><b>联机能力</b>：只有<b>奶蛙鼓鼓碰</b>用到了 WebSocket，其余全部单机。</li>
+<li><b>Tailwind CDN</b>：贪吃蛙、颜色大挑战这两个（同一作者 mqiu03099）都是 <code>cdn.tailwindcss.com</code> + <code>config.js</code>/<code>app.js</code>，index.html 只有 8 KB。</li>
+<li><b>单文件巨型 HTML</b>：奶蛙消消乐 245 KB、奶蛙的小窝 356 KB、鼓鼓碰 187 KB —— 样式和脚本全内联，直接 View Source 就能看全。</li>
+<li><b>自己搭的服务器</b>：奶蛙神跑 <code>naiwa.me</code> 是 nginx 自建（非 Pages/CDN），版本号打在文件名上（<code>game.v184.js</code>），迭代极快。</li>
+<li><b>零依赖可离线</b>：合成大奶蛙、抓奶蛙明确写了双击 <code>index.html</code> 即玩，<code>file://</code> 下排行榜也能用（靠 TinyWebDB 的跨域头）。</li>
+</ul>
+
+<footer>
+本地已保存的原始源码：<code>nw/mf_src/home.html</code>（官网单页）、<code>nw/mf_src/games/*.html</code>（22 个游戏首页）、<code>nw/mf_src/js/*.js</code>（部分主脚本）。
+</footer>
+
+</div>
+<script>
+const D=[
+{n:1,t:"奶蛙狂笑",r:"/",u:"https://milkyfrog.com/",host:"静态站",tech:"原生 HTML/CSS/JS + 视频",src:null,tags:["官网本体","零框架"],d:"单页里的狂笑动画区块，非独立游戏"},
+{n:2,t:"合成大奶蛙",r:"/hecheng",u:"https://yhsome.github.io/BigNaiWa/",host:"GitHub Pages",tech:"原生 JS + Canvas 2D + 自研 PBD 物理 + TinyWebDB 榜",src:"https://github.com/yhsome/BigNaiWa",tags:["gh","47★","README 极详细"],d:"game.js 50 KB；11 级合成链；碰撞箱按贴图轮廓生成；有 physics.test.js / gameplay.test.js"},
+{n:3,t:"奶蛙神跑",r:"/shenpao",u:"https://naiwa.me/",host:"自建 nginx",tech:"Three.js + WebGL + WebAudio",src:null,tags:["no","仓库未公开","最重"],d:"game.v184.js 589 KB（解压 1.39 MB），WebGL 出现 214 次，真 3D 跑酷；版本号打在文件名上，迭代极快"},
+{n:4,t:"奶蛙羽毛球",r:"/yumaoqiu",u:"https://www.bilibili.com/toy/naiwa-badminton/index.html",host:"哔哩哔哩 toy",tech:"平台壳 + toy-host SDK",src:null,tags:["plat","源码不可见"],d:"壳页只有 3.5 KB，真实包由 s1.hdslb.com 的 toy-host.js 加载"},
+{n:5,t:"奶蛙jump",r:"/jump",u:"https://naiwai-jump.github.io/",host:"GitHub Pages",tech:"打包 bundle（releases/<hash>/src/home.bundle.js 113 KB）",src:"https://github.com/naiwai-jump/naiwai-jump.github.io",tags:["gh","27 MB 仓库"],d:"仓库 27.7 MB 主要是素材；NOASSERTION 许可"},
+{n:6,t:"召唤神龙",r:"/shenlong",u:"https://naiwa.games/",host:"Cloudflare",tech:"Next.js App Router（/_next/static/chunks/*）",src:null,tags:["no","仓库未公开"],d:"作者 鱼戏荷；唯一一个用 React/Next 的；页面里有 .webmcp/bridge.js"},
+{n:7,t:"奶蛙放屁",r:"/fangpi",u:"https://naiwa-fart.pages.dev/",host:"Cloudflare Pages",tech:"原生 JS（src/main.js 7.5 KB）+ tokens.css/app.css",src:"https://github.com/Malpaca33/naiwa-fart",tags:["gh","作者 二奶","98 文件"],d:"README 写明「单文件、零依赖、部署在 CF Pages」；作者另有 HANDOVER.md"},
+{n:8,t:"抓奶蛙",r:"/zhua",u:"https://yhsome.github.io/ZhuaNaiWa/",host:"GitHub Pages",tech:"原生 JS + Canvas",src:"https://github.com/yhsome/ZhuaNaiWa",tags:["gh","已从官网下架"],d:"4 关主线 + 无尽模式 + 实时排行榜 + 自制 BGM；官网卡片已移除但游戏仍在线，8061 人玩过"},
+{n:9,t:"奶蛙贪吃蛙",r:"/tanchiwa",u:"https://milkyfrogs.toolsbox.vip/",host:"CF Pages + CNAME",tech:"Tailwind CDN + js/config.js + js/app.js",src:"https://github.com/mqiu03099-dotcom/milkyfrogs",tags:["gh","12 文件"],d:"仓库 CNAME 文件内容 = milkyfrogs.toolsbox.vip，直接对上"},
+{n:10,t:"奶蛙2048超级版",r:"/2048",u:"https://game.0z.hk/game/2048/",host:"Cloudflare",tech:"原生 js/{data,audio,game,ai,render,ui}.js（game.js 6.4 KB）",src:null,tags:["no","作者可考"],d:"页脚链了 github.com/66970010-boop/frog-miner —— 与「奶蛙工厂」同一作者，共用同一套 js/ 分层结构"},
+{n:11,t:"奶蛙五子棋",r:"/wuziqi",u:"https://wudibaolongzhanshi1234.github.io/1335689.giyhub.io/",host:"GitHub Pages",tech:"单文件，JS 全内联",src:"https://github.com/wudibaolongzhanshi1234/1335689.giyhub.io",tags:["gh","仓库名拼错"],d:"仓库名是 giyhub（少一个 t）；1.9 MB，10-03 一天建完"},
+{n:12,t:"奶了个蛙",r:"/nailegewa",u:"https://junjunya2020.github.io/nailegewa",host:"GitHub Pages",tech:"index.html + styles.css + game.js（羊了个羊玩法）",src:"https://github.com/junjunya2020/nailegewa",tags:["gh","MIT"],d:"最干净的一个：三个文件，本体 1.7 KB；页脚还链了 game.0z.hk"},
+{n:13,t:"奶蛙一跳",r:"/tiao",u:"https://naiwa-jump.pages.dev/",host:"Cloudflare Pages",tech:"Three.js（js/game.js 165 KB）",src:"https://github.com/Sn2333/naiwa-jump",tags:["gh","作者 Sn"],d:"官网标「作者 Sn」，对应 Sn2333；仓库含 .wrangler + dev/ 一堆 Python/Node 素材提取脚本，56 文件"},
+{n:14,t:"奶斗罗",r:"/douluo",u:"https://nai-dou-luo.pages.dev/",host:"Cloudflare Pages",tech:"Canvas 2D + WebAudio，多模块（game/campaign/profile/leaderboard…）",src:null,tags:["no","仓库未公开"],d:"7 个 JS 模块，带 ?v=terrain-training-7 版本号；有战役模式和排行榜"},
+{n:15,t:"奶蛙颜色大挑战",r:"/yanse",u:"https://milkyfrog.toolsbox.vip/",host:"CF Pages + CNAME",tech:"Tailwind CDN + js/config.js + js/app.js",src:"https://github.com/mqiu03099-dotcom/the-great-toad-color-challenge-web",tags:["gh","同一作者"],d:"与贪吃蛙同一作者（mqiu03099），文件结构完全同构，只多两张 naiwacolor 图"},
+{n:16,t:"旅行奶蛙",r:"/lvxing",u:"https://www.bilibili.com/toy/TravelMilkyFrog/index.html",host:"哔哩哔哩 toy",tech:"平台壳 + toy-host SDK",src:null,tags:["plat","源码不可见"],d:"真实入口带版本号：bilibilitoy.com/toy/TravelMilkyFrog/31272667963392-v15309/index.html"},
+{n:17,t:"奶蛙快跑",r:"/kuaipao",u:"https://e.233ly.com/1ABrH3",host:"233 工坊（短链→233she.cn）",tech:"Nuxt 3 平台（/_nuxt/*）",src:"https://github.com/naiwa-play/naiwa-play.github.io",tags:["plat","gh","118,360 人玩过"],d:"官网链的是 233 工坊托管版；GitHub 上另有同名开源实现 game.js+physics.js+Kenney 像素素材"},
+{n:18,t:"奶蛙工厂",r:"/gongchang",u:"https://66970010-boop.github.io/frog-miner",host:"GitHub Pages",tech:"原生 + SignalsmithStretch 音频变调；js/{data,audio,game,render,ninja,ui}.js",src:"https://github.com/66970010-boop/frog-miner",tags:["gh","MIT","8★"],d:"34 MB 仓库；渲染与逻辑分离，还带了一个 ninja.js"},
+{n:19,t:"奶蛙街舞",r:"/jiewu",u:"https://nailong-dance.pages.dev",host:"Cloudflare Pages",tech:"js/codec.js + js/main.js（63 KB）+ style.css",src:null,tags:["no","仓库未公开"],d:"标题「奶娃街舞 · Dance Baby」；codec.js 疑似动作数据编解码"},
+{n:20,t:"奶蛙鼓鼓碰",r:"/gugupeng",u:"https://naiwa-gugupeng.pages.dev/",host:"Cloudflare Pages",tech:"多模块 + WebSocket（唯一联机）",src:null,tags:["no","仓库未公开","联机"],d:"187 KB 单页，外挂 skins/online/solo-touch/combat-guide 等 20+ 模块，版本 ?v=39"},
+{n:21,t:"奶蛙消消乐",r:"/xiaoxiaole",u:"https://chenckx0614.github.io/naiwaxxl/",host:"GitHub Pages",tech:"单文件巨型 HTML（245 KB，样式脚本全内联）",src:"https://github.com/chenckx0614/naiwaxxl",tags:["gh","20 MB"],d:"10-08 刚更新过；View Source 一页看全"},
+{n:22,t:"奶蛙的小窝",r:"/xiaowo",u:"https://naiwaxiaowu.pages.dev/",host:"Cloudflare Pages",tech:"356 KB 单页 + assets/runtime/{compat,boot}.js 分包",src:null,tags:["no","仓库未公开"],d:"全场最大单页；有 external-content.config.js，疑似可外挂内容"}
+];
+document.getElementById('cards').innerHTML = D.map(x=>`
+<div class="card">
+  <h3><span class="idx">${x.n}</span>${x.t}</h3>
+  <div class="route">milkyfrog.com${x.r}</div>
+  <div class="real">→ <a href="${x.u}" target="_blank" rel="noreferrer">${x.u.replace(/^https:\/\//,'')}</a></div>
+  <dl class="meta">
+    <dt>托管</dt><dd>${x.host}</dd>
+    <dt>技术</dt><dd>${x.tech}</dd>
+  </dl>
+  <div style="font-size:13px;color:#4b5563">${x.d}</div>
+  <div class="tags">${x.tags.map(t=>{
+    const c = t==='gh'?'gh' : (t==='no'||t==='源码不可见')?'no' : (t==='plat')?'plat' : '';
+    return `<span class="tag ${c}">${t}</span>`;
+  }).join('')}</div>
+  ${x.src?`<div class="src"><a href="${x.src}" target="_blank" rel="noreferrer">${x.src.replace('https://github.com/','github.com/')}</a></div>`
+        :`<div class="src" style="color:#b42318">源码未公开</div>`}
+</div>`).join('');
+</script>
+</body>
+</html>

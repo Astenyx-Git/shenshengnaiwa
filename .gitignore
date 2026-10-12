@@ -1,0 +1,16 @@
+# ---- 第三方游戏素材（不随仓库分发）----
+# assets/ 是从他人制作的奶蛙小游戏里抓取的角色贴图 / 字体 / 音乐 / 模型，
+# mf_src/ 是 milkyfrog.com 官网与各游戏首页的原始 HTML。
+# 版权归各自作者所有，本仓库只保留自己写的代码与产物。
+# 注意：dino.html 已把用到的贴图 base64 内嵌，脱离本目录也能独立运行；
+#       但 make_dino_game.py 需要 assets/ 才能重新生成。
+assets/
+mf_src/
+
+# ---- 工作区本地数据 ----
+.workbuddy-ai/
+
+# ---- 杂项 ----
+*.tmp
+Thumbs.db
+.DS_Store
