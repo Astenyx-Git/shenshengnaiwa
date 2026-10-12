@@ -104,6 +104,39 @@ HTML = r"""<!doctype html>
     margin-top:6px;cursor:pointer}
   .stage.night .go{background:#fff8;color:var(--ink)}
   .go:active{transform:scale(.97)}
+  .boardbtn{font:600 13px ui-monospace,Menlo,Consolas,monospace;margin-top:10px;
+    padding:7px 18px;border-radius:999px;cursor:pointer;
+    background:transparent;color:var(--mute);border:1px solid var(--line)}
+  .boardbtn:hover{color:var(--ink);border-color:var(--ink)}
+  .stage.night .boardbtn{color:#8f98bd;border-color:#3a426a}
+  .stage.night .boardbtn:hover{color:#fff;border-color:#6a76a8}
+  /* ---------- 本地排行榜面板 ---------- */
+  .board{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:12px;padding:26px 20px;
+    background:rgba(255,247,223,.94);backdrop-filter:blur(3px)}
+  .stage.night .board{background:rgba(18,22,38,.94)}
+  .board[hidden]{display:none}
+  .board h2{margin:0;font-size:20px}
+  .board h2 small{display:block;font-size:11.5px;color:var(--mute);font-weight:500;margin-top:3px}
+  .stage.night .board h2 small{color:#8f98bd}
+  .board .empty{font-size:13px;color:var(--mute);padding:18px 0}
+  .board ol{margin:0;padding:0;list-style:none;width:min(420px,100%);max-height:46%;
+    overflow-y:auto;background:#fff;border:1px solid var(--line);border-radius:12px}
+  .stage.night .board ol{background:#222948;border-color:#3a426a}
+  .board li{display:flex;align-items:center;gap:10px;padding:8px 14px;font-size:13.5px;
+    border-bottom:1px solid var(--line)}
+  .stage.night .board li{border-color:#333b5e}
+  .board li:last-child{border-bottom:none}
+  .board li .rk{width:22px;font:700 12px ui-monospace,monospace;color:var(--mute);flex:none}
+  .board li.top1 .rk{color:#f0b429}
+  .board li .sc{font:700 15px ui-monospace,monospace;flex:1;text-align:left}
+  .board li .dt{font-size:11px;color:var(--mute)}
+  .board .acts{display:flex;gap:10px}
+  .board button{font:600 13px ui-monospace,monospace;padding:8px 18px;border-radius:999px;
+    border:1px solid var(--line);background:#fff;color:#6b5635;cursor:pointer}
+  .stage.night .board button{background:#2a3055;color:#cdd5ec;border-color:#3a426a}
+  .board button.primary{background:var(--ink);color:#fff8;border-color:var(--ink)}
+  .board button:active{transform:scale(.97)}
   .credit{position:absolute;bottom:6px;left:10px;font-size:10.5px;color:var(--mute)}
   .credit a{color:inherit;text-decoration:underline;text-underline-offset:2px}
   .credit a:hover{color:var(--ink)}
@@ -135,6 +168,15 @@ HTML = r"""<!doctype html>
       </div>
     </div>
     <button class="go" id="go">开 始 狂 奔</button>
+    <button class="boardbtn" id="boardBtn">🏆 本地排行榜</button>
+  </div>
+  <div class="board" id="board" hidden>
+    <h2>本地排行榜<small id="boardSub"></small></h2>
+    <ol id="boardList"></ol>
+    <div class="acts">
+      <button class="primary" id="boardClose">关 闭</button>
+      <button id="boardClear">清空记录</button>
+    </div>
   </div>
   <div class="hint">速度 <span id="spd">5.0</span></div>
   <div class="credit">__CREDIT__</div>
@@ -172,6 +214,103 @@ const SPEEDUP_PER_SCORE = 0.0011;
 // 跳跃已无长按变高，所以这就是实际滞空（自检里用 JUMP_FRAMES_ok 断言守住）。
 const JUMP_FRAMES = 74;
 const NIGHT_AT = [700, 1400, 2100];   // 达到这些分数后切换一次昼夜
+
+// ===================== 本地数据库 =====================
+// 纯前端持久化，不依赖任何后端。表 runs{ id, score, ts, dur, spd }。
+// 首选 IndexedDB（真正的浏览器数据库，可索引、可查询）；
+// 但 Chrome 在 file:// 协议下把页面当作 opaque origin，会直接禁用 IndexedDB ——
+// 而本作主打「双击即玩」，所以必须能降级。降级目标是 localStorage（file:// 下可用）。
+// 两个后端暴露同一套 API，上层代码不关心底层是哪个。
+//
+// ⚠️ 验证边界（别误以为自检覆盖了全部）：自检里 localDB* 那几条断言，
+//    在无头浏览器里跑的都是 **localStorage 分支** —— 因为
+//    `--dump-dom` 不加虚拟时钟会立刻取 DOM，加了虚拟时钟又会把定时器瞬间跳过、
+//    却**不等 IndexedDB 的回调**（IndexedDB 不走网络栈，虚拟时钟不等它）。
+//    所以 IndexedDB 分支是靠代码审查确认的，不是靠自检跑出来的。
+//    真实浏览器打开 http(s) 页面时会走 IndexedDB；面板上会写明当前用的是哪个后端，
+//    打开排行榜一眼就能看到，这是最直接的验证方式。
+const LDB = (() => {
+  const NAME = 'naiwa_run', VER = 1, STORE = 'runs', LSKEY = 'naiwa_run_log';
+  let kind = null, dbp = null;
+
+  function openIDB(){
+    if (dbp) return dbp;
+    dbp = new Promise((res, rej) => {
+      if (!self.indexedDB) return rej(new Error('no indexedDB'));
+      let rq;
+      try { rq = indexedDB.open(NAME, VER); }
+      catch (e) { return rej(e); }                 // file:// 下会同步抛 SecurityError
+      rq.onupgradeneeded = () => {
+        const d = rq.result;
+        if (!d.objectStoreNames.contains(STORE)){
+          const os = d.createObjectStore(STORE, {keyPath:'id', autoIncrement:true});
+          os.createIndex('score', 'score');
+          os.createIndex('ts', 'ts');
+        }
+      };
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = () => rej(rq.error);
+      rq.onblocked = () => rej(new Error('blocked'));
+    });
+    return dbp;
+  }
+
+  const idbTx = async (mode, fn) => {
+    const d = await openIDB();
+    return new Promise((res, rej) => {
+      let out;
+      let t;
+      try { t = d.transaction(STORE, mode); } catch (e) { return rej(e); }
+      const rq = fn(t.objectStore(STORE));
+      if (rq) rq.onsuccess = () => { out = rq.result; };
+      t.oncomplete = () => res(out);
+      t.onerror = () => rej(t.error);
+      t.onabort = () => rej(t.error);
+    });
+  };
+
+  // ---- localStorage 后端（降级用）----
+  const lsRead = () => { try { return JSON.parse(localStorage.getItem(LSKEY) || '[]'); } catch(e){ return []; } };
+  const lsWrite = a => { try { localStorage.setItem(LSKEY, JSON.stringify(a)); } catch(e){} };
+
+  // 探测一次，决定用哪个后端。
+  // ⚠️ 这里有个坑：file:// 协议下 Chrome/Edge 的 indexedDB.open() 会
+  //    **既不触发 onsuccess 也不触发 onerror**，请求就那么挂着 ——
+  //    所以既不能靠 try/catch（它不抛），也不能干等（会卡死初始化）。
+  //    做法：先按协议直接判定，再给探测加一个超时兜底，两条路都不会卡。
+  async function init(){
+    if (kind) return kind;
+    if (location.protocol === 'file:'){ kind = 'localstorage'; return kind; }
+    try {
+      const probe = idbTx('readonly', os => os.count()).then(() => 'ok');
+      const timeout = new Promise(r => setTimeout(() => r('timeout'), 1500));
+      kind = (await Promise.race([probe, timeout])) === 'ok' ? 'indexeddb' : 'localstorage';
+    } catch (e) { kind = 'localstorage'; }
+    return kind;
+  }
+
+  return {
+    init,
+    get kind(){ return kind; },
+    async add(rec){
+      await init();
+      if (kind === 'indexeddb') return idbTx('readwrite', os => os.add(rec));
+      const a = lsRead();
+      a.push({ ...rec, id: (a.length ? Math.max(...a.map(x=>x.id||0)) : 0) + 1 });
+      lsWrite(a);
+    },
+    async all(){
+      await init();
+      if (kind === 'indexeddb') return (await idbTx('readonly', os => os.getAll())) || [];
+      return lsRead();
+    },
+    async clear(){
+      await init();
+      if (kind === 'indexeddb') return idbTx('readwrite', os => os.clear());
+      lsWrite([]);
+    },
+  };
+})();
 
 // ===================== 工具 =====================
 const cv = document.getElementById('cv');
@@ -372,6 +511,12 @@ function spawnObs(){
 // ===================== 输入 =====================
 let keyJump=false, keyDown=false;
 window.addEventListener('keydown', e=>{
+  // 排行榜打开时吞掉按键，只留 Esc 关闭（否则空格会把游戏开起来）
+  if (!boardEl.hidden){
+    if (e.code === 'Escape') closeBoard();
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'ArrowDown') e.preventDefault();
+    return;
+  }
   if (e.code==='Space' || e.code==='ArrowUp' || e.code==='KeyW'){ keyJump=true; e.preventDefault(); }
   if (e.code==='ArrowDown' || e.code==='KeyS'){ keyDown=true; e.preventDefault(); }
   if (state==='ready' || state==='over') startRun();   // startRun 内部负责 reset
@@ -567,6 +712,50 @@ const titleTextEl = document.getElementById('titleText');
 const titleSubEl  = document.getElementById('titleSub');
 const keysEl  = ov.querySelector('.keys');
 
+// ---------- 排行榜面板 ----------
+const boardEl     = document.getElementById('board');
+const boardBtn    = document.getElementById('boardBtn');
+const boardListEl = document.getElementById('boardList');
+const boardSubEl  = document.getElementById('boardSub');
+
+const fmtTs = ts => {
+  const d = new Date(ts), p = n => String(n).padStart(2, '0');
+  return p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+};
+
+async function renderBoard(){
+  let rows = [];
+  try { rows = await LDB.all(); } catch(e){}
+  rows.sort((a,b) => b.score - a.score || b.ts - a.ts);
+  boardSubEl.textContent = '存在本机浏览器（' + (LDB.kind === 'indexeddb' ? 'IndexedDB' : 'localStorage')
+    + '）· 共 ' + rows.length + ' 条 · 换设备不同步';
+  const top = rows.slice(0, 10);
+  if (!top.length){
+    boardListEl.innerHTML = '<li class="empty">还没有记录，先跑一局吧</li>';
+    return;
+  }
+  boardListEl.innerHTML = top.map((r,i) =>
+    '<li' + (i === 0 ? ' class="top1"' : '') + '>' +
+      '<span class="rk">' + (i+1) + '</span>' +
+      '<span class="sc">' + r.score + '</span>' +
+      '<span class="dt">' + (r.ts ? fmtTs(r.ts) : '—') + '</span>' +
+    '</li>').join('');
+}
+
+function openBoard(){ boardEl.hidden = false; renderBoard(); }
+function closeBoard(){ boardEl.hidden = true; }
+
+boardBtn.addEventListener('click', e => { e.stopPropagation(); openBoard(); });
+document.getElementById('boardClose').addEventListener('click', e => { e.stopPropagation(); closeBoard(); });
+document.getElementById('boardClear').addEventListener('click', async e => {
+  e.stopPropagation();
+  if (!confirm('确定清空全部本地成绩记录？此操作不可撤销。')) return;
+  await LDB.clear();
+  renderBoard();
+});
+// 面板内的点击不要冒泡到 stage（否则会触发跳跃 / 开始游戏）
+boardEl.addEventListener('pointerdown', e => e.stopPropagation());
+
 function onGameOver(){
   const final = Math.floor(score);
   const isBest = final > hi;
@@ -574,6 +763,8 @@ function onGameOver(){
   ov.style.display = 'flex';
   titleTextEl.textContent = isBest ? '新纪录！' : '撞上了';
   titleSubEl.textContent  = '本局 ' + final + ' 分 · 最高 ' + hi + ' 分';
+  // 存进本地数据库（失败也不影响玩，只是没记录）
+  LDB.add({score: final, ts: Date.now(), dur: frames, spd: +speed.toFixed(1)}).catch(()=>{});
   goBtn.textContent = '再 来 一 局';
   keysEl.style.display = 'none';
 }
@@ -993,7 +1184,31 @@ function runSelfTest(){
   } catch(e){
     add('EXCEPTION', (e && (e.stack || e.message)) || e);
   }
-  add('DONE', '1');
+
+  // 9) 本地数据库：真实走一遍「写入 → 读回 → 还原」。
+  //    先快照原有记录，测完还原，绝不把用户真实成绩清掉。
+  (async () => {
+    try {
+      const k = await LDB.init();
+      add('localDBkind', k);
+      const snap = await LDB.all();
+      const MARK = 987654;
+      await LDB.add({score: MARK, ts: 1700000000000, dur: 1, spd: 1});
+      const after = await LDB.all();
+      add('localDBwriteRead', (after.length === snap.length + 1 &&
+          after.some(r => r.score === MARK)) ? 'yes' : 'NO');
+      await LDB.clear();
+      for (const r of snap) await LDB.add({score:r.score, ts:r.ts, dur:r.dur, spd:r.spd});
+      const back = await LDB.all();
+      add('localDBrestored', (back.length === snap.length) ? 'yes' : 'NO');
+      // 渲染一次面板，确认列表能正常出内容
+      await renderBoard();
+      add('boardRows', boardListEl.children.length);
+    } catch(e){
+      add('localDB', 'EXCEPTION ' + (e && e.message));
+    }
+    add('DONE', '1');
+  })();
 }
 
 // 全局兜底：任何没被 catch 的错误也写进 DOM，方便无头读取
