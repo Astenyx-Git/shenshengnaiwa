@@ -77,7 +77,27 @@
   .board li .rk{width:22px;font:700 12px ui-monospace,monospace;color:var(--mute);flex:none}
   .board li.top1 .rk{color:#f0b429}
   .board li .sc{font:700 15px ui-monospace,monospace;flex:1;text-align:left}
-  .board li .dt{font-size:11px;color:var(--mute)}
+  .board li .nm{font-size:12.5px;color:var(--mute);max-width:120px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .stage.night .board li .nm{color:#8f98bd}
+  .board li .dt{font-size:11px;color:var(--mute);flex:none;min-width:74px;text-align:right}
+  .board .tabs{display:flex;gap:6px}
+  .board .tab{font:600 13px ui-monospace,monospace;padding:6px 20px;border-radius:999px;
+    border:1px solid var(--line);background:transparent;color:var(--mute);cursor:pointer}
+  .board .tab.is-on{background:var(--ink);color:#fff8;border-color:var(--ink)}
+  .stage.night .board .tab{color:#8f98bd;border-color:#3a426a}
+  .stage.night .board .tab.is-on{background:#e6ebff;color:#1a1f33;border-color:#e6ebff}
+  .board .nickrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mute)}
+  .board .nickrow[hidden]{display:none}
+  .board .nickrow input{font:600 13px ui-monospace,monospace;width:130px;padding:6px 10px;
+    border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink)}
+  .stage.night .board .nickrow input{background:#222948;color:#e6ebff;border-color:#3a426a}
+  .board .nickrow button{font:700 15px ui-monospace,monospace;padding:4px 12px;border-radius:8px;
+    border:1px solid var(--line);background:#fff;color:#6b5635;cursor:pointer}
+  .stage.night .board .nickrow button{background:#2a3055;color:#cdd5ec;border-color:#3a426a}
+  .board .boardmsg{margin:0;font-size:12px;color:var(--mute);min-height:16px}
+  .board .boardmsg.ok{color:#15803d}
+  .board .boardmsg.bad{color:#b42318}
   .board .acts{display:flex;gap:10px}
   .board button{font:600 13px ui-monospace,monospace;padding:8px 18px;border-radius:999px;
     border:1px solid var(--line);background:#fff;color:#6b5635;cursor:pointer}
@@ -118,11 +138,21 @@
     <button class="boardbtn" id="boardBtn">🏆 本地排行榜</button>
   </div>
   <div class="board" id="board" hidden>
-    <h2>本地排行榜<small id="boardSub"></small></h2>
+    <h2>排行榜<small id="boardSub"></small></h2>
+    <div class="tabs">
+      <button class="tab is-on" data-tab="local">本机</button>
+      <button class="tab" data-tab="remote">全网</button>
+    </div>
     <ol id="boardList"></ol>
+    <div class="nickrow" id="nickRow" hidden>
+      <label for="nickInput">昵称</label>
+      <input id="nickInput" maxlength="12" placeholder="匿名玩家" autocomplete="off" spellcheck="false">
+      <button id="boardRefresh" title="刷新">↻</button>
+    </div>
+    <p class="boardmsg" id="boardMsg"></p>
     <div class="acts">
       <button class="primary" id="boardClose">关 闭</button>
-      <button id="boardClear">清空记录</button>
+      <button id="boardClear">清空本机记录</button>
     </div>
   </div>
   <div class="hint">速度 <span id="spd">5.0</span></div>
@@ -258,6 +288,112 @@ const LDB = (() => {
     },
   };
 })();
+
+// ===================== 全网排行榜（TinyWebDB）=====================
+// 这是「纯前端联机」：不写也不部署任何后端代码，页面直接 POST 到一个第三方
+// key-value 存储。合成大奶蛙用的就是这套（接口同为 tinywebdb.appinventor.space）。
+//
+// 之所以可行，关键在它返回 `Access-Control-Allow-Origin: *`，
+// 所以 GitHub Pages 甚至 file:// 都能直接读写。
+//
+// ⚠️ 安全边界（必须清楚，别当成有保障的服务）：
+//   前端没有可信身份，user/secret 也必然能从源码里还原出来 —— 它防不住恶意用户。
+//   所以这里靠的是【设计】而不是保密：
+//     · 滚动时间窗：只展示最近 N 条提交，不是历史最高分榜 → 卡榜首没意义，
+//       也天然避开并发写冲突（每人只写自己那条，全程没有任何 delete）
+//     · 提交限频、分数范围校验
+//     · 昵称清洗 + 全部 textContent 渲染（防 XSS）
+//     · 网络失败只影响排行榜，绝不阻断游戏
+//   真要防住作弊必须有服务端校验，那就不是纯静态了。
+//
+// 配置留空 = 纯本地模式：不联网、不报错、功能照旧。
+const REMOTE = {
+  url:      'https://tinywebdb.appinventor.space/api',
+  user:     '',      // ← 在 https://tinywebdb.appinventor.space 申请后填这里
+  secret:   '',      // ← 同上（免费，可申请多个库）
+  prefix:   'hnw_',  // 命名空间前缀，别蹭别人的
+  window:   20,      // 只展示最近 20 条提交
+  minGap:   3000,    // 两次提交的最小间隔
+  maxScore: 99999999,
+};
+// 写成函数而不是常量：配置可能被运行时改动，也让自检能临时打开开关
+const remoteOn = () => !!(REMOTE.user && REMOTE.secret);
+const NAME_KEY  = 'hnw.name';
+
+const cleanName = raw => {
+  let n = String(raw == null ? '' : raw).replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  return n.length > 12 ? n.slice(0, 12) : n;
+};
+const loadName = () => { try { return cleanName(localStorage.getItem(NAME_KEY) || ''); } catch(e){ return ''; } };
+const saveName = n => { try { localStorage.setItem(NAME_KEY, cleanName(n)); } catch(e){} };
+const myName   = () => loadName() || '匿名玩家';
+
+let lastSubmitAt = 0, submitting = false;
+
+async function remotePost(params){
+  const body = new URLSearchParams();
+  body.set('user', REMOTE.user);
+  body.set('secret', REMOTE.secret);
+  for (const k in params) body.set(k, params[k]);
+  const once = async () => {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 8000);   // 别让一个卡住的请求拖死界面
+    try {
+      const res = await fetch(REMOTE.url, { method:'POST', body, signal: ac.signal });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const text = (await res.text()).trim();
+      if (!text) return {};
+      try { return JSON.parse(text); }
+      catch(e){ throw new Error('返回内容无法解析：' + text.slice(0, 40)); }
+    } finally { clearTimeout(timer); }
+  };
+  try { return await once(); }
+  catch (e) {
+    await new Promise(r => setTimeout(r, 700));         // 偶发抖动重试一次
+    return once();
+  }
+}
+
+async function remoteSubmit(name, score){
+  if (!remoteOn()) throw new Error('未配置全网榜单');
+  if (submitting) return false;
+  if (Date.now() - lastSubmitAt < REMOTE.minGap) throw new Error('刚提交过啦，稍等一下');
+  if (!(score > 0) || score > REMOTE.maxScore) throw new Error('分数不在合理范围');
+  submitting = true;
+  try {
+    const tag = REMOTE.prefix + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+    await remotePost({ action:'update', tag,
+      value: JSON.stringify({ n: cleanName(name) || '匿名玩家', s: Math.floor(score), t: Date.now() }) });
+    lastSubmitAt = Date.now();
+    return true;
+  } finally { submitting = false; }
+}
+
+async function remoteTop(){
+  if (!remoteOn()) throw new Error('未配置全网榜单');
+  const bag = {};
+  let no = 1;
+  for (let page = 0; page < 2; page++){          // 扫两页足够覆盖最近 20 条
+    const obj = await remotePost({ action:'search', no:String(no), count:'100',
+                                   tag:REMOTE.prefix, type:'both' });
+    for (const k in obj)
+      if (k.indexOf(REMOTE.prefix) === 0 && typeof obj[k] === 'string') bag[k] = obj[k];
+    no += 100;
+  }
+  const all = [];
+  for (const tag in bag){
+    let rec;
+    try { rec = JSON.parse(bag[tag]); } catch(e){ continue; }      // 脏数据直接跳过
+    const s = Number(rec && rec.s);
+    if (!isFinite(s) || s < 0 || s > REMOTE.maxScore) continue;    // 过滤离谱分数
+    all.push({ name: String((rec && rec.n) || '匿名玩家').slice(0, 16),
+               score: s, t: Number(rec && rec.t) || 0 });
+  }
+  all.sort((a,b) => b.t - a.t);
+  const fresh = all.slice(0, REMOTE.window);                       // 先按时间取最近 N 条
+  fresh.sort((a,b) => b.score - a.score || b.t - a.t);             // 再按分数排
+  return fresh;
+}
 
 // ===================== 工具 =====================
 const cv = document.getElementById('cv');
@@ -665,41 +801,103 @@ const boardBtn    = document.getElementById('boardBtn');
 const boardListEl = document.getElementById('boardList');
 const boardSubEl  = document.getElementById('boardSub');
 
+const nickRowEl = document.getElementById('nickRow');
+const nickInput = document.getElementById('nickInput');
+const boardMsgEl = document.getElementById('boardMsg');
+let boardTab = 'local', lastRemoteMsg = '';
+
 const fmtTs = ts => {
   const d = new Date(ts), p = n => String(n).padStart(2, '0');
   return p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 };
-
-async function renderBoard(){
-  let rows = [];
-  try { rows = await LDB.all(); } catch(e){}
-  rows.sort((a,b) => b.score - a.score || b.ts - a.ts);
-  boardSubEl.textContent = '存在本机浏览器（' + (LDB.kind === 'indexeddb' ? 'IndexedDB' : 'localStorage')
-    + '）· 共 ' + rows.length + ' 条 · 换设备不同步';
-  const top = rows.slice(0, 10);
-  if (!top.length){
-    boardListEl.innerHTML = '<li class="empty">还没有记录，先跑一局吧</li>';
-    return;
-  }
-  boardListEl.innerHTML = top.map((r,i) =>
-    '<li' + (i === 0 ? ' class="top1"' : '') + '>' +
-      '<span class="rk">' + (i+1) + '</span>' +
-      '<span class="sc">' + r.score + '</span>' +
-      '<span class="dt">' + (r.ts ? fmtTs(r.ts) : '—') + '</span>' +
-    '</li>').join('');
+function setMsg(text, kind){
+  boardMsgEl.textContent = text || '';
+  boardMsgEl.className = 'boardmsg' + (kind ? ' ' + kind : '');
 }
 
-function openBoard(){ boardEl.hidden = false; renderBoard(); }
+// ⚠️ 全部用 createElement + textContent —— 昵称是用户输入，拼 innerHTML 就是 XSS 洞
+function renderRows(rows, emptyText){
+  boardListEl.textContent = '';
+  if (!rows.length){
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = emptyText;
+    boardListEl.appendChild(li);
+    return;
+  }
+  rows.forEach((r, i) => {
+    const li = document.createElement('li');
+    if (i === 0) li.className = 'top1';
+    const rk = document.createElement('span'); rk.className = 'rk'; rk.textContent = String(i + 1);
+    const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = String(r.score);
+    li.appendChild(rk); li.appendChild(sc);
+    if (r.name){
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.name;
+      li.appendChild(nm);
+    }
+    const dt = document.createElement('span'); dt.className = 'dt';
+    const ts = r.ts || r.t || 0;
+    dt.textContent = ts ? fmtTs(ts) : '—';
+    li.appendChild(dt);
+    boardListEl.appendChild(li);
+  });
+}
+
+async function showTab(tab){
+  boardTab = tab;
+  document.querySelectorAll('.board .tab').forEach(b =>
+    b.classList.toggle('is-on', b.dataset.tab === tab));
+  nickRowEl.hidden = (tab !== 'remote') || !remoteOn();
+
+  if (tab === 'local'){
+    let rows = [];
+    try { rows = await LDB.all(); } catch(e){}
+    rows.sort((a,b) => b.score - a.score || b.ts - a.ts);
+    boardSubEl.textContent = '存在本机浏览器（' + (LDB.kind === 'indexeddb' ? 'IndexedDB' : 'localStorage')
+      + '）· 共 ' + rows.length + ' 条 · 换设备不同步';
+    renderRows(rows.slice(0, 10), '还没有记录，先跑一局吧');
+    setMsg('');
+    return;
+  }
+
+  if (!remoteOn()){
+    boardSubEl.textContent = '未配置';
+    renderRows([], '全网榜单未配置');
+    setMsg('需要先填 REMOTE.user / REMOTE.secret（见 README）', 'bad');
+    return;
+  }
+
+  boardSubEl.textContent = '最近 ' + REMOTE.window + ' 次提交 · 全网共享';
+  renderRows([], '正在读取…');
+  setMsg(lastRemoteMsg || '正在读取…');
+  try {
+    const rows = await remoteTop();
+    renderRows(rows, '最近还没有人提交，快去玩一局');
+    if (!lastRemoteMsg) setMsg('已读取 ' + rows.length + ' 条', 'ok');
+  } catch(e){
+    renderRows([], '读取失败');
+    setMsg('读取失败：' + ((e && e.message) || e), 'bad');
+  }
+}
+
+function openBoard(){ boardEl.hidden = false; showTab(boardTab); }
 function closeBoard(){ boardEl.hidden = true; }
 
 boardBtn.addEventListener('click', e => { e.stopPropagation(); openBoard(); });
 document.getElementById('boardClose').addEventListener('click', e => { e.stopPropagation(); closeBoard(); });
+document.querySelectorAll('.board .tab').forEach(b =>
+  b.addEventListener('click', e => { e.stopPropagation(); showTab(b.dataset.tab); }));
+document.getElementById('boardRefresh').addEventListener('click', e => {
+  e.stopPropagation(); lastRemoteMsg = ''; showTab('remote');
+});
 document.getElementById('boardClear').addEventListener('click', async e => {
   e.stopPropagation();
-  if (!confirm('确定清空全部本地成绩记录？此操作不可撤销。')) return;
+  if (!confirm('确定清空本机的全部成绩记录？此操作不可撤销。')) return;
   await LDB.clear();
-  renderBoard();
+  showTab('local');
 });
+nickInput.addEventListener('change', () => { saveName(nickInput.value); nickInput.value = loadName(); });
+nickInput.addEventListener('blur',   () => { saveName(nickInput.value); nickInput.value = loadName(); });
 // 面板内的点击不要冒泡到 stage（否则会触发跳跃 / 开始游戏）
 boardEl.addEventListener('pointerdown', e => e.stopPropagation());
 
@@ -711,7 +909,16 @@ function onGameOver(){
   titleTextEl.textContent = isBest ? '新纪录！' : '撞上了';
   titleSubEl.textContent  = '本局 ' + final + ' 分 · 最高 ' + hi + ' 分';
   // 存进本地数据库（失败也不影响玩，只是没记录）
-  LDB.add({score: final, ts: Date.now(), dur: frames, spd: +speed.toFixed(1)}).catch(()=>{});
+  const who = myName();
+  LDB.add({score: final, name: who, ts: Date.now(), dur: frames, spd: +speed.toFixed(1)}).catch(()=>{});
+  // 配了全网榜就顺带提交一份。未配置 / 网络失败都只写提示，绝不阻断游戏。
+  lastRemoteMsg = '';
+  if (remoteOn() && final > 0){
+    lastRemoteMsg = '正在提交到全网榜…';
+    remoteSubmit(who, final)
+      .then(() => { lastRemoteMsg = '已上榜 ✓ ' + who + ' · ' + final + ' 分'; })
+      .catch(err => { lastRemoteMsg = '提交失败：' + ((err && err.message) || err); });
+  }
   goBtn.textContent = '再 来 一 局';
   keysEl.style.display = 'none';
 }
@@ -1149,10 +1356,63 @@ function runSelfTest(){
       const back = await LDB.all();
       add('localDBrestored', (back.length === snap.length) ? 'yes' : 'NO');
       // 渲染一次面板，确认列表能正常出内容
-      await renderBoard();
+      await showTab('local');
       add('boardRows', boardListEl.children.length);
     } catch(e){
       add('localDB', 'EXCEPTION ' + (e && e.message));
+    }
+
+    // 10) 全网榜协议自检：把 fetch 换成桩件，验证请求构造 / 响应过滤 / 限频 / 分数校验。
+    //     绝不碰真实服务（那是别人的公益服务，不该被测试流量打）。
+    const realFetch = window.fetch;
+    const reqs = [];
+    let mode = 'write';
+    const sUser = REMOTE.user, sSecret = REMOTE.secret;
+    window.fetch = (url, opt) => {
+      reqs.push({ url, body: opt && opt.body });
+      if (mode === 'write') return Promise.resolve({ ok:true, text: () => Promise.resolve('{}') });
+      return Promise.resolve({ ok:true, text: () => Promise.resolve(JSON.stringify({
+        'hnw_t1_aaaa': JSON.stringify({ n:'阿花', s:120, t:5000 }),
+        'hnw_t2_bbbb': JSON.stringify({ n:'阿狗', s:900, t:9000 }),
+        'hnw_t3_cccc': JSON.stringify({ n:'离谱', s:999999999, t:9999 }),  // 超上限 → 应被过滤
+        'hnw_t4_dddd': '这不是 JSON',                                      // 脏数据 → 应被跳过
+        'other_x':     JSON.stringify({ n:'别人的', s:1, t:1 }),           // 前缀不符 → 应被忽略
+      })) });
+    };
+    try {
+      REMOTE.user = 'tu'; REMOTE.secret = 'ts';
+      add('remoteConfigured', remoteOn() ? 'yes(测试态)' : 'NO');
+
+      // 分数校验（此时还没成功提交过，不会被限频挡住）
+      let guard = 'NO';
+      try { await remoteSubmit('测试蛙', 0); } catch(e){ guard = /范围/.test(e.message) ? 'yes' : 'NO:' + e.message; }
+      add('remoteScoreGuard', guard);
+
+      // 写入：检查 POST 体
+      await remoteSubmit('测试蛙', 321);
+      const b1 = new URLSearchParams(reqs[reqs.length-1].body);
+      add('remoteWriteAction', b1.get('action') + ' user=' + b1.get('user'));
+      add('remoteWriteTag', String(b1.get('tag')||'').indexOf(REMOTE.prefix) === 0 ? 'yes' : 'NO');
+      const v = JSON.parse(b1.get('value'));
+      add('remoteWriteValue', 'n=' + v.n + ' s=' + v.s + ' t=' + (v.t > 0 ? 'ok' : 'NO'));
+
+      // 限频：立刻再提一次应被拒
+      let gap = 'NO';
+      try { await remoteSubmit('测试蛙', 322); } catch(e){ gap = /稍等/.test(e.message) ? 'yes' : 'NO:' + e.message; }
+      add('remoteRateLimit', gap);
+
+      // 读取：脏数据过滤 + 排序
+      mode = 'read';
+      const rows = await remoteTop();
+      add('remoteReadRows', rows.length);                       // 应为 2
+      add('remoteReadOrder', rows.map(r => r.score).join('>'));  // 应为 900>120
+      const rb = new URLSearchParams(reqs[reqs.length-1].body);
+      add('remoteReadAction', rb.get('action') + ' tag=' + rb.get('tag'));
+    } catch(e){
+      add('remoteTest', 'EXCEPTION ' + (e && e.message));
+    } finally {
+      REMOTE.user = sUser; REMOTE.secret = sSecret;   // 还原，别把测试态带出去
+      window.fetch = realFetch;
     }
     add('DONE', '1');
   })();
