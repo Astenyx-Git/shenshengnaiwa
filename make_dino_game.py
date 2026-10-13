@@ -44,13 +44,14 @@ def b64(p):
 
 ENC = {name: b64(path) for name, path, _ in IMGS}
 
-# 左下角「素材来源」里的仓库地址。**暂时留空**，填上后自动渲染成可点链接。
+# 左下角显示的**本项目**仓库地址。留空则显示占位提示；填上后自动渲染成可点链接。
+# （素材的上游来源写在上面的 art/ 注释与 README 里，那是另一回事）
 # 例：REPO_URL = "https://github.com/yourname/holy-naiwa"
-REPO_URL = ""
+REPO_URL = "https://github.com/Astenyx-Git/shenshengnaiwa"
 CREDIT_HTML = (
-    f'素材来源：<a href="{REPO_URL}" target="_blank" rel="noreferrer">{REPO_URL}</a>'
+    f'项目仓库：<a href="{REPO_URL}" target="_blank" rel="noreferrer">{REPO_URL}</a>'
     if REPO_URL else
-    '素材来源：GitHub 仓库地址（待填）'
+    '项目仓库：GitHub 仓库地址（待填）'
 )
 
 # ============ HTML ============
@@ -1084,6 +1085,13 @@ async function showTab(tab){
 function openBoard(){ boardEl.hidden = false; showTab(boardTab); }
 function closeBoard(){ boardEl.hidden = true; }
 
+// ⚠️ 按钮的 pointerdown 必须拦住，不能冒泡到 stage：
+//   stage 上的 pointerdown 会 startRun()（顺手把游戏开起来），
+//   而且它调了 preventDefault，在真实浏览器里会连带抑制随后的 click ——
+//   表现就是「点了排行榜按钮毫无反应」。自检里有 boardBtnNoStart 断言守着。
+[goBtn, boardBtn].forEach(el =>
+  el.addEventListener('pointerdown', e => e.stopPropagation()));
+
 boardBtn.addEventListener('click', e => { e.stopPropagation(); openBoard(); });
 document.getElementById('boardClose').addEventListener('click', e => { e.stopPropagation(); closeBoard(); });
 document.querySelectorAll('.board .tab').forEach(b =>
@@ -1563,6 +1571,19 @@ function runSelfTest(){
       // 渲染一次面板，确认列表能正常出内容
       await showTab('local');
       add('boardRows', boardListEl.children.length);
+
+      // 12) 排行榜按钮真的能用：模拟一次真实点击，并检查它有没有误把游戏开起来
+      reset(); ov.style.display = ''; boardEl.hidden = true;
+      const bb = document.getElementById('boardBtn');
+      bb.dispatchEvent(new PointerEvent('pointerdown', { bubbles:true, cancelable:true }));
+      bb.dispatchEvent(new MouseEvent('click', { bubbles:true, cancelable:true }));
+      add('boardBtnOpens', boardEl.hidden ? 'NO(没打开)' : 'yes');
+      add('boardBtnNoStart', state === 'ready' ? 'yes' : 'NO(顺带把游戏开起来了)');
+      // 关闭按钮同样要能用
+      const bc = document.getElementById('boardClose');
+      bc.dispatchEvent(new PointerEvent('pointerdown', { bubbles:true, cancelable:true }));
+      bc.dispatchEvent(new MouseEvent('click', { bubbles:true, cancelable:true }));
+      add('boardCloseWorks', boardEl.hidden ? 'yes' : 'NO');
     } catch(e){
       add('localDB', 'EXCEPTION ' + (e && e.message));
     }
