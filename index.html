@@ -813,7 +813,7 @@ function spawnObs(){
 // ===================== 输入 =====================
 let keyJump=false, keyDown=false;
 let overAt = 0;                    // 撞死时刻，用于重开保护期
-const RESTART_GRACE_MS = 600;      // 撞死后这段时间内忽略重开：疯狂点屏的最后一下不应直接开新局
+const RESTART_GRACE_MS = 600;      // 保护期只作用于「点舞台」误触；按钮/键盘重开不受影响
 window.addEventListener('keydown', e=>{
   // 焦点在输入框里一律让路 —— 否则在昵称框里打空格会跳跃、打 s 会下蹲
   const t = e.target;
@@ -838,7 +838,13 @@ window.addEventListener('keyup', e=>{
 let touchStartY = null, touchStartT = 0, touchDucking = false;
 stage.addEventListener('pointerdown', e=>{
   e.preventDefault();
-  if (state==='ready' || state==='over'){ startRun(); return; }
+  if (state==='ready' || state==='over'){
+    // 重开保护期：撞死瞬间的舞台误触不算数（疯狂点屏的最后一下）。
+    // 只拦这里 —— 「再来一局」按钮 / 虚拟按键 / 键盘是明确意图，永远即时响应，
+    // 不然保护期内狂点按钮全被吞掉 = 「按钮点了没反应」。
+    if (state==='over' && performance.now() - overAt < RESTART_GRACE_MS) return;
+    startRun(); return;
+  }
   touchStartY = e.clientY; touchStartT = performance.now();
   keyJump = true;     // 按下立即给一次起跳（点按要零延迟）
   touchDucking = false;
@@ -863,8 +869,6 @@ goBtn.addEventListener('click', e=>{ e.stopPropagation(); startRun(); });
 
 function startRun(){
   if (state==='playing') return;
-  // 重开保护期：撞死瞬间的误触不算数，等 600ms 后再点才能开新局
-  if (state==='over' && performance.now() - overAt < RESTART_GRACE_MS) return;
   if (state==='over'){ reset(); restoreTitle(); }
   state = 'playing';
   ov.style.display = 'none';
@@ -1743,19 +1747,20 @@ function runSelfTest(){
         keyJump = false; keyDown = false; touchDucking = false;
       })();
 
-      // 16) 重开保护期：撞死瞬间的误触不能立刻开新局
+      // 16) 重开保护期：只拦「点舞台」误触；按钮 / 键盘重开必须即时响应
       (function graceTest(){
         reset(); ov.style.display = 'none'; startRun(); obs = [];
         keyJump = false; keyDown = false;
         player.dead = true; player.vy = -8; player.y = GROUND_Y + 100;
         let g = 0; while (state !== 'over' && g++ < 300) step();
         const died = (state === 'over');
-        startRun();                                    // 保护期内 → 必须被忽略
+        // 撞死后立刻点舞台 → 被保护期拦下
+        stage.dispatchEvent(new PointerEvent('pointerdown', { bubbles:true, cancelable:true, pointerId:7, clientX:10, clientY:10 }));
         const blocked = (state === 'over');
-        overAt = performance.now() - 10000;            // 模拟保护期已过
-        startRun();
-        add('restartGraceBlocks', (died && blocked) ? 'yes' : 'NO');
-        add('restartGraceExpires', state === 'playing' ? 'yes' : 'NO');
+        // 撞死后立刻点「再来一局」→ 必须立即开新局（明确意图，不能吞）
+        goBtn.dispatchEvent(new MouseEvent('click', { bubbles:true, cancelable:true }));
+        add('restartGraceBlocksStageTap', (died && blocked) ? 'yes' : 'NO');
+        add('restartGraceButtonInstant', state === 'playing' ? 'yes' : 'NO');
       })();
 
       // 17) 舞台纵横比必须恒等于 1000:560，否则贴图被纵向压扁（横屏手机重灾区）
