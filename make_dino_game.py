@@ -382,14 +382,15 @@ const REMOTE = {
     'http://localhost:8765',
     'http://127.0.0.1:8765',
   ],
-  window:   20,      // 只展示最近 20 条提交
+  topN:     20,      // 榜单展示前多少名
+  scanPages: 5,      // 最多拉取 5 页 × 100 条 = 500 条候选
+  verifyBudget: 200, // 最多逐条校验多少条（见 remoteTop 的性能说明）
   minGap:   3000,    // 两次提交的最小间隔
   maxScore: 99999999,
 };
 // 写成函数而不是常量：配置可能被运行时改动，也让自检能临时打开开关
 const remoteOn = () => !!(REMOTE.user && REMOTE.secret);
 const NAME_KEY  = 'hnw.name';
-const SCAN_MAX  = 60;   // 读取时最多校验多少条，防垃圾记录拖慢
 
 // ---------- 记录格式规范与校验 ----------
 // 目的：让「直接往库里写一条记录」这种做法大概率被读端剔除。
@@ -545,37 +546,47 @@ async function remoteTop(origin){
   const o = origin === undefined ? currentOrigin() : origin;
   if (!remoteOn()) throw new Error('未配置全网榜单');
   if (!originAllowed(o)) throw new Error('当前来源不允许联机（' + originLabel(o) + '）');
-  const bag = {};
-  let no = 1;
-  for (let page = 0; page < 2; page++){          // 扫两页足够覆盖最近 20 条
-    const obj = await remotePost({ action:'search', no:String(no), count:'100',
-                                   tag:REMOTE.prefix, type:'both' });
-    for (const k in obj)
-      if (k.indexOf(REMOTE.prefix) === 0 && typeof obj[k] === 'string') bag[k] = obj[k];
-    no += 100;
-  }
-  // 先按提交时间倒序，再逐条校验，凑够 window 条合法记录就停。
-  // 扫描条数封顶（SCAN_MAX）是为了防「灌一堆垃圾记录把读取拖慢」。
-  const entries = [];
-  for (const tag in bag){
-    let rec = null, bad = false;
-    try { rec = JSON.parse(bag[tag]); } catch(e){ bad = true; }
-    entries.push({ tag, rec, bad, t: bad ? 0 : (Number(rec && rec.t) || 0) });
-  }
-  entries.sort((a,b) => b.t - a.t);
 
-  const rows = [];
-  let rejected = 0, scanned = 0;
-  for (const e of entries){
-    if (rows.length >= REMOTE.window || scanned >= SCAN_MAX) break;
-    scanned++;
-    if (e.bad){ rejected++; continue; }
-    if (verifyRecord(bag[e.tag])){ rejected++; continue; }   // 不自洽 / 缺字段 / 校验码不符
-    rows.push({ name: String(e.rec.n).slice(0, 16), score: e.rec.s,
-                frames: e.rec.f, t: e.rec.t });
+  // 1) 拉取候选（分页，够一页就继续；不足一页说明到底了）
+  const bag = {};
+  for (let page = 0; page < REMOTE.scanPages; page++){
+    const obj = await remotePost({ action:'search', no:String(page * 100 + 1), count:'100',
+                                   tag:REMOTE.prefix, type:'both' });
+    let n = 0;
+    for (const k in obj){
+      if (k.indexOf(REMOTE.prefix) === 0 && typeof obj[k] === 'string'){ bag[k] = obj[k]; n++; }
+    }
+    if (n < 100) break;
   }
-  rows.sort((a,b) => b.score - a.score || b.t - a.t);   // 窗口内再按分数排
-  return { rows, rejected, scanned, total: entries.length };
+
+  // 2) 解析出候选，按【声称分数】降序排。
+  //    ⚠️ scoreAfter(f) 是 O(f) 的，全量逐条校验会很慢（500 条 × 最长 18 万帧 ≈ 上亿次循环）。
+  //       所以按分数从高到低验，凑够 topN 个不同昵称、或到达校验预算就停。
+  //       这也顺带抗「灌垃圾记录拖慢读取」。
+  const cands = [];
+  let badJson = 0;
+  for (const tag in bag){
+    let rec;
+    try { rec = JSON.parse(bag[tag]); } catch(e){ badJson++; continue; }
+    if (!rec || typeof rec !== 'object' || Array.isArray(rec)) continue;
+    cands.push({ tag, rec, s: Number(rec.s) || 0, t: Number(rec.t) || 0 });
+  }
+  cands.sort((a,b) => b.s - a.s || a.t - b.t);
+
+  // 3) 逐条校验 + 按昵称去重（分数降序处理，所以先遇到的同名记录就是 TA 的最好成绩）
+  const best = new Map();
+  let rejected = 0, verified = 0;
+  for (const c of cands){
+    if (best.size >= REMOTE.topN || verified >= REMOTE.verifyBudget) break;
+    verified++;
+    if (verifyRecord(bag[c.tag])){ rejected++; continue; }
+    if (!best.has(c.rec.n)){
+      best.set(c.rec.n, { name: c.rec.n, score: c.rec.s, frames: c.rec.f, t: c.rec.t });
+    }
+  }
+  const rows = [...best.values()].sort((a,b) => b.score - a.score || a.t - b.t);
+  return { rows, rejected: rejected + badJson, verified,
+           candidates: cands.length, fetched: Object.keys(bag).length };
 }
 
 // ===================== 工具 =====================
@@ -1067,15 +1078,16 @@ async function showTab(tab){
     return;
   }
 
-  boardSubEl.textContent = '最近 ' + REMOTE.window + ' 次提交 · 全网共享';
+  boardSubEl.textContent = '历史最高分 · 按昵称去重 · 取前 ' + REMOTE.topN + ' 名';
   renderRows([], '正在读取…');
   setMsg(lastRemoteMsg || '正在读取…');
   try {
     const res = await remoteTop();
-    renderRows(res.rows, '最近还没有人提交，快去玩一局');
-    boardSubEl.textContent = '最近 ' + REMOTE.window + ' 次提交 · 全网共享'
-      + (res.rejected ? ' · 已剔除 ' + res.rejected + ' 条不自洽记录' : '');
-    if (!lastRemoteMsg) setMsg('已读取 ' + res.rows.length + ' 条合法记录', 'ok');
+    renderRows(res.rows, '还没有人提交，快去玩一局');
+    boardSubEl.textContent = '历史最高分 · 按昵称去重 · 取前 ' + REMOTE.topN + ' 名'
+      + ' · 已校验 ' + res.verified + ' 条'
+      + (res.rejected ? '，剔除 ' + res.rejected + ' 条' : '');
+    if (!lastRemoteMsg) setMsg('已读取 ' + res.rows.length + ' 人上榜', 'ok');
   } catch(e){
     renderRows([], '读取失败');
     setMsg('读取失败：' + ((e && e.message) || e), 'bad');
@@ -1604,11 +1616,15 @@ function runSelfTest(){
       const g2 = makeRecord('阿狗', scoreAfter(6000), 6000, 1791800009000, TO);   // 合法
       const f1 = JSON.parse(JSON.stringify(g2));                              // 手改分数
       f1.n = '改分党'; f1.s = f1.s * 10; f1.t = 1791800008000;                // → 校验码不符
+      const d1 = makeRecord('同一个人', scoreAfter(2000), 2000, 1791800003000, TO);  // 较低
+      const d2 = makeRecord('同一个人', scoreAfter(5000), 5000, 1791800004000, TO);  // 较高
       const f2 = { v: REC_VER, n:'自洽党', s: 999999, f: 100, t: 1791800007000 };
       f2.c = recChecksum(f2);                                                 // 校验码对，但分数与帧数不自洽
       return Promise.resolve({ ok:true, text: () => Promise.resolve(JSON.stringify({
         'hnw_g1_aaaa': JSON.stringify(g1),
         'hnw_g2_bbbb': JSON.stringify(g2),
+        'hnw_d1_zzzz': JSON.stringify(d1),
+        'hnw_d2_yyyy': JSON.stringify(d2),
         'hnw_f1_cccc': JSON.stringify(f1),
         'hnw_f2_dddd': JSON.stringify(f2),
         'hnw_f3_eeee': '这不是 JSON',
@@ -1648,7 +1664,10 @@ function runSelfTest(){
       // 读取：脏数据过滤 + 排序
       mode = 'read';
       const res = await remoteTop(TO);
-      add('remoteReadRows', res.rows.length);                          // 应为 2（只留合法的）
+      add('remoteReadRows', res.rows.length);                          // 应为 3（阿狗 / 同一个人 / 阿花）
+      const dup = res.rows.filter(r => r.name === '同一个人');
+      add('remoteDedupByName', dup.length === 1
+        ? 'yes(留最高 ' + dup[0].score + ')' : 'NO(同名出现 ' + dup.length + ' 条)');
       add('remoteReadRejected', res.rejected);                         // 应为 3（改分 / 不自洽 / 非 JSON）
       add('remoteReadOrderDesc', (res.rows.length >= 2 && res.rows[0].score > res.rows[1].score) ? 'yes' : 'NO');
 
