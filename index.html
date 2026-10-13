@@ -58,7 +58,7 @@
   .boardbtn:hover{color:var(--ink);border-color:var(--ink)}
   .stage.night .boardbtn{color:#8f98bd;border-color:#3a426a}
   .stage.night .boardbtn:hover{color:#fff;border-color:#6a76a8}
-  /* ---------- 本地排行榜面板 ---------- */
+  /* ---------- 排行榜面板（本机 / 全网两个页签）---------- */
   .board{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
     justify-content:center;gap:12px;padding:26px 20px;
     background:rgba(255,247,223,.94);backdrop-filter:blur(3px)}
@@ -164,7 +164,7 @@
              autocomplete="off" spellcheck="false">
     </div>
     <button class="go" id="go">开 始 狂 奔</button>
-    <button class="boardbtn" id="boardBtn">🏆 本地排行榜</button>
+    <button class="boardbtn" id="boardBtn">🏆 排行榜</button>
   </div>
   <div class="board" id="board" hidden>
     <h2>排行榜<small id="boardSub"></small></h2>
@@ -1581,6 +1581,7 @@ function runSelfTest(){
       bb.dispatchEvent(new PointerEvent('pointerdown', { bubbles:true, cancelable:true }));
       bb.dispatchEvent(new MouseEvent('click', { bubbles:true, cancelable:true }));
       add('boardBtnOpens', boardEl.hidden ? 'NO(没打开)' : 'yes');
+      add('boardBtnText', JSON.stringify(bb.textContent.trim()));   // 别再写成「本地排行榜」
       // 加了昵称行后，开始页内容不能超出可视区（否则小屏会被裁掉）
       ov.style.display = 'flex'; ov.scrollTop = 0;
       add('overlayFits', (ov.scrollHeight <= ov.clientHeight + 1 ? 'yes' : 'NO') +
