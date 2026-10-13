@@ -372,11 +372,15 @@ const REMOTE = {
   prefix:   'hnw_',  // 命名空间前缀，别蹭别人的
   // 允许提交 / 收录的来源白名单（`location.origin`）。
   //   · 留空数组 = 只挡 file:// 这类无来源的情况，任何 http(s) 站点都可提交
-  //   · 填了内容 = 严格只认这些来源（推荐部署后填成自己的正式域名）
-  // 例：['https://astenyx-git.github.io', 'https://你的自定义域名']
+  //   · 填了内容 = 严格只认这些来源
   // ⚠️ GitHub Pages 的**项目页**共用 <user>.github.io 这个 origin，
   //    所以同一账号下的其它项目也在白名单内 —— 要更精确得连 pathname 一起判。
-  origins:  [],
+  origins: [
+    'https://astenyx-git.github.io',   // 正式站点（仓库 Astenyx-Git/shenshengnaiwa 的 Pages）
+    // ↓ 本地开发用。上线后可以删掉这两行，删掉后本地就也提交不了了。
+    'http://localhost:8765',
+    'http://127.0.0.1:8765',
+  ],
   window:   20,      // 只展示最近 20 条提交
   minGap:   3000,    // 两次提交的最小间隔
   maxScore: 99999999,
@@ -1569,6 +1573,7 @@ function runSelfTest(){
     const reqs = [];
     let mode = 'write';
     const sUser = REMOTE.user, sSecret = REMOTE.secret;
+    const sOrigins = REMOTE.origins.slice();
     const TO = 'https://example.github.io';   // 测试用来源（声明在外层，桩件和断言都要用）
     window.fetch = (url, opt) => {
       reqs.push({ url, body: opt && opt.body });
@@ -1591,6 +1596,8 @@ function runSelfTest(){
     };
     try {
       REMOTE.user = 'tu'; REMOTE.secret = 'ts';
+      // 把测试来源临时加进白名单，否则下面的写入链路测试会被来源校验挡住
+      REMOTE.origins = sOrigins.concat([TO]);
       add('remoteConfigured', remoteOn() ? 'yes(测试态)' : 'NO');
 
       // 分数 / 帧数校验（此时还没成功提交过，不会被限频挡住）
@@ -1671,6 +1678,7 @@ function runSelfTest(){
       add('remoteTest', 'EXCEPTION ' + (e && e.message));
     } finally {
       REMOTE.user = sUser; REMOTE.secret = sSecret;   // 还原，别把测试态带出去
+      REMOTE.origins = sOrigins;
       window.fetch = realFetch;
     }
 

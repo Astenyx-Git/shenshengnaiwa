@@ -116,12 +116,22 @@ speed  = Math.min(16, 5 + score * 0.0011);
 - `REMOTE.origins` 留空 → 放行所有 http(s) 来源
 - `REMOTE.origins` 填了 → **只认名单内的来源**（推荐部署后填自己的正式域名）
 
+本仓库已经配好：
+
 ```python
-origins: ['https://你的用户名.github.io'],
+origins: [
+  'https://astenyx-git.github.io',   # 正式站点
+  'http://localhost:8765',           # 本地开发用，上线后可删
+  'http://127.0.0.1:8765',
+],
 ```
+
+正式站点是 <https://astenyx-git.github.io/shenshengnaiwa/>，它的 origin 就是
+`https://astenyx-git.github.io`。
 
 > ⚠️ GitHub Pages 的**项目页**共用 `<user>.github.io` 这一个 origin，
 > 所以同一账号下的其它项目也会落在白名单里。要更精确得连 `pathname` 一起判。
+> 本地那两条是开发便利，**删掉后本地就也提交不了**（但还能看榜单）。
 
 ⚠️ 和校验码一样，**这是策略执行，不是安全边界** —— 白名单同样在源码里，改掉即可绕过。
 它的价值是挡住"随手下载一份本地跑"这类**无主观恶意**的情况。
