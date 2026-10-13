@@ -2,7 +2,7 @@
 
 仿 Chrome 小恐龙的奶蛙主题跑酷小游戏。**单文件 HTML5，零依赖，双击即玩。**
 
-`dino.html` 把全部贴图以 base64 内嵌，脱离任何外部资源都能独立运行，断网也行。
+`index.html` 把全部贴图以 base64 内嵌，脱离任何外部资源都能独立运行，断网也行。
 
 ---
 
@@ -166,8 +166,8 @@ origins: ['https://你的用户名.github.io'],
 ## 文件结构
 
 ```
-dino.html                  游戏本体（由生成器产出，可直接双击运行）
-make_dino_game.py          生成器：读 art/ 里的 webp → base64 → 产出 dino.html
+index.html                  游戏本体（由生成器产出，可直接双击运行）
+make_dino_game.py          生成器：读 art/ 里的 webp → base64 → 产出 index.html
 art/                       本作实际用到的 15 张贴图（随仓库提交）
   douluo/                    角色与敌兵，取自「奶斗罗」
   bignaiwa/                  开始页图标，取自「合成大奶蛙」
@@ -182,14 +182,14 @@ milkyfrog-source-map.html  22 个奶蛙小游戏的源码地图调研报告
 游戏本体不需要构建：
 
 ```bash
-# 直接双击 dino.html 即可；或起个静态服务
+# 直接双击 index.html 即可；或起个静态服务
 python -m http.server 8080
 ```
 
 改动 `make_dino_game.py` 后重新生成：
 
 ```bash
-python make_dino_game.py     # → dino.html
+python make_dino_game.py     # → index.html
 ```
 
 因为素材已随仓库放在 `art/`，**干净检出后无需任何额外步骤即可重新生成**。
@@ -254,13 +254,30 @@ python dedupe_assets.py      # 内容去重 + 清理误抓的假响应
 
 ---
 
+## 部署到 GitHub Pages
+
+仓库根目录已经放了 **`index.html`**（静态托管的默认入口）和 **`.nojekyll`**（跳过 Jekyll 处理），
+所以只要开 Pages 就能直接跑：
+
+1. 推到 GitHub
+2. 仓库 **Settings → Pages → Source** 选 `Deploy from a branch`
+3. 分支选 `main`、目录选 `/ (root)`，保存
+
+访问 `https://<用户名>.github.io/<仓库名>/` 即可。`index.html` 是默认文档，
+不用在地址里写文件名。
+
+> 如果你的站点根目录不是仓库根（比如要放到 `/nw/` 子路径），把 `index.html` 和 `art/`
+> 一起挪进那个子目录即可 —— 生成器用的是相对路径，不受影响。
+
+开启全网榜后记得把 `REMOTE.origins` 填成你的正式域名（见上文）。
+
 ## 自检
 
-`dino.html` 内置了一套渲染与玩法自检，供无头浏览器读取（纯文本，不依赖截图）：
+`index.html` 内置了一套渲染与玩法自检，供无头浏览器读取（纯文本，不依赖截图）：
 
 ```
-dino.html?selftest=1    跑自检，结果写进 <pre id="selftest">
-dino.html?auto=1&t=300  自动开跑 300 帧（截图用）
+index.html?selftest=1    跑自检，结果写进 <pre id="selftest">
+index.html?auto=1&t=300  自动开跑 300 帧（截图用）
 ```
 
 自检覆盖：贴图加载、图标、键位映射、拖影、跳跃高度与滞空、下蹲判定、
@@ -271,7 +288,7 @@ dino.html?auto=1&t=300  自动开跑 300 帧（截图用）
 
 ```bash
 msedge --headless=new --disable-gpu --virtual-time-budget=30000 \
-  --dump-dom "file:///path/to/dino.html?selftest=1" | grep -oE 'SELFTEST[^<]*'
+  --dump-dom "file:///path/to/index.html?selftest=1" | grep -oE 'SELFTEST[^<]*'
 ```
 
 ## 相关

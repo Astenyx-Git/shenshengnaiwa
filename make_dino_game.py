@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""读取 assets 里的素材，生成单文件「神圣奶蛙」跑酷游戏 (dino.html)。
+"""读取 assets 里的素材，生成单文件「神圣奶蛙」跑酷游戏 (index.html)。
+
+产物固定叫 index.html —— GitHub Pages / 静态托管默认找的就是它，
+否则访问目录地址只会看到文件列表或 404。
 
 镜像 Chrome 小恐龙的玩法：跳 / 下蹲 / 计分 / 昼夜 / 加速 / 触屏。
 素材来自奶蛙合集里抓到的「奶斗罗」角色与敌兵（见 doc/README）。
@@ -1727,7 +1730,7 @@ assert _n >= 2, f'__GODFROG__ 占位符只出现 {_n} 次，图标或 favicon �
 HTML = HTML.replace('__GODFROG__', ENC['godfrog'])
 assert HTML.count('__CREDIT__') == 1, '__CREDIT__ 占位符数量不对'
 HTML = HTML.replace('__CREDIT__', CREDIT_HTML)
-out = ROOT / "dino.html"
+out = ROOT / "index.html"
 out.write_text(HTML, encoding='utf-8')
 print(f"已生成 {out} ({out.stat().st_size/1024:.1f} KB)")
 for name, path, usage in IMGS:
