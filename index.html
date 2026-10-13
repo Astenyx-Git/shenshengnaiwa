@@ -26,7 +26,8 @@
   .hi{position:absolute;top:14px;left:18px;font:600 12px ui-monospace,Menlo,Consolas,monospace;color:var(--mute)}
   .stage.night .hi{color:#7a82a8}
   .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    background:rgba(255,247,223,.85);backdrop-filter:blur(2px);text-align:center;padding:0 24px}
+    background:rgba(255,247,223,.85);backdrop-filter:blur(2px);text-align:center;
+    padding:20px 24px;overflow-y:auto}
   .stage.night .overlay{background:rgba(20,24,42,.85);color:#fff}
   .overlay h1{margin:0 0 8px;font-size:34px;letter-spacing:1px}
   .overlay h1 small{display:block;font-size:14px;color:var(--mute);margin-top:4px;letter-spacing:0;font-weight:500}
@@ -57,6 +58,23 @@
   .boardbtn:hover{color:var(--ink);border-color:var(--ink)}
   .stage.night .boardbtn{color:#8f98bd;border-color:#3a426a}
   .stage.night .boardbtn:hover{color:#fff;border-color:#6a76a8}
+  /* 舞台尺寸随视口变化，用容器查询按「舞台实际高度」收紧开始页排版，
+     保证小屏也不被裁掉（自检里有 overlayFits 断言守着） */
+  .stage{container-type:size}
+  @container (max-height: 470px){
+    .overlay{padding:12px 16px}
+    .overlay h1{font-size:22px}
+    .overlay h1 .logo{width:46px;height:46px;margin-bottom:5px}
+    .overlay h1 small{font-size:11px;margin-top:1px}
+    .overlay .keys{margin:7px 0 9px;gap:3px}
+    .krow{font-size:11px}
+    .key{font-size:10.5px;padding:2px 6px}
+    .nickrow{font-size:11px}
+    .nickrow input{width:100px;padding:3px 7px;font-size:12px}
+    .go{font-size:14px;padding:7px 18px;margin-top:3px}
+    .boardbtn{font-size:11px;padding:4px 11px;margin-top:5px}
+  }
+
   /* ---------- 本地排行榜面板 ---------- */
   .board{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
     justify-content:center;gap:12px;padding:26px 20px;
@@ -89,14 +107,15 @@
   .board .tab.is-on{background:var(--ink);color:#fff8;border-color:var(--ink)}
   .stage.night .board .tab{color:#8f98bd;border-color:#3a426a}
   .stage.night .board .tab.is-on{background:#e6ebff;color:#1a1f33;border-color:#e6ebff}
-  .board .nickrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mute)}
-  .board .nickrow[hidden]{display:none}
-  .board .nickrow input{font:600 13px ui-monospace,monospace;width:130px;padding:6px 10px;
+  .nickrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mute)}
+  .nickrow[hidden]{display:none}
+  .nickrow input{font:600 13px ui-monospace,monospace;width:130px;padding:6px 10px;
     border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink)}
-  .stage.night .board .nickrow input{background:#222948;color:#e6ebff;border-color:#3a426a}
-  .board .nickrow button{font:700 15px ui-monospace,monospace;padding:4px 12px;border-radius:8px;
+  .nickrow input:focus{outline:2px solid #f0b429;outline-offset:1px}
+  .stage.night .nickrow input{background:#222948;color:#e6ebff;border-color:#3a426a}
+  .nickrow button{font:700 15px ui-monospace,monospace;padding:4px 12px;border-radius:8px;
     border:1px solid var(--line);background:#fff;color:#6b5635;cursor:pointer}
-  .stage.night .board .nickrow button{background:#2a3055;color:#cdd5ec;border-color:#3a426a}
+  .stage.night .nickrow button{background:#2a3055;color:#cdd5ec;border-color:#3a426a}
   .board .boardmsg{margin:0;font-size:12px;color:var(--mute);min-height:16px}
   .board .boardmsg.ok{color:#15803d}
   .board .boardmsg.bad{color:#b42318}
@@ -135,6 +154,11 @@
         <span class="key">点屏幕</span><em>跳</em>
         <span class="key">向下滑</span><em>下蹲</em>
       </div>
+    </div>
+    <div class="nickrow" id="startNickRow">
+      <label for="startNick">昵称</label>
+      <input id="startNick" maxlength="12" placeholder="匿名玩家"
+             autocomplete="off" spellcheck="false">
     </div>
     <button class="go" id="go">开 始 狂 奔</button>
     <button class="boardbtn" id="boardBtn">🏆 本地排行榜</button>
@@ -731,6 +755,9 @@ function spawnObs(){
 // ===================== 输入 =====================
 let keyJump=false, keyDown=false;
 window.addEventListener('keydown', e=>{
+  // 焦点在输入框里一律让路 —— 否则在昵称框里打空格会跳跃、打 s 会下蹲
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
   // 排行榜打开时吞掉按键，只留 Esc 关闭（否则空格会把游戏开起来）
   if (!boardEl.hidden){
     if (e.code === 'Escape') closeBoard();
@@ -995,6 +1022,7 @@ async function showTab(tab){
   document.querySelectorAll('.board .tab').forEach(b =>
     b.classList.toggle('is-on', b.dataset.tab === tab));
   nickRowEl.hidden = (tab !== 'remote') || !remoteOn() || !originAllowed(currentOrigin());
+  paintNames();
 
   if (tab === 'local'){
     let rows = [];
@@ -1060,8 +1088,24 @@ document.getElementById('boardClear').addEventListener('click', async e => {
   await LDB.clear();
   showTab('local');
 });
-nickInput.addEventListener('change', () => { saveName(nickInput.value); nickInput.value = loadName(); });
-nickInput.addEventListener('blur',   () => { saveName(nickInput.value); nickInput.value = loadName(); });
+// ---------- 昵称：开始页与排行榜面板共用同一份存储 ----------
+const startNickInput = document.getElementById('startNick');
+function paintNames(){
+  const n = loadName();
+  [startNickInput, nickInput].forEach(el => {
+    if (el && document.activeElement !== el) el.value = n;
+  });
+}
+function commitName(v){ saveName(v); paintNames(); }
+[startNickInput, nickInput].forEach(el => {
+  if (!el) return;
+  el.addEventListener('change', () => commitName(el.value));
+  el.addEventListener('blur',   () => commitName(el.value));
+  el.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); el.blur(); } });
+  // 同 boardBtn：不拦住 pointerdown 的话会冒泡到 stage，顺带把游戏开起来
+  el.addEventListener('pointerdown', e => e.stopPropagation());
+});
+paintNames();
 // 面板内的点击不要冒泡到 stage（否则会触发跳跃 / 开始游戏）
 boardEl.addEventListener('pointerdown', e => e.stopPropagation());
 
@@ -1095,6 +1139,7 @@ function restoreTitle(){
   titleSubEl.textContent  = 'Naiwa Run';
   goBtn.textContent = '开 始 狂 奔';
   keysEl.style.display = 'flex';
+  paintNames();
 }
 
 // ===================== 音效（WebAudio 实时合成） =====================
@@ -1533,12 +1578,39 @@ function runSelfTest(){
       bb.dispatchEvent(new PointerEvent('pointerdown', { bubbles:true, cancelable:true }));
       bb.dispatchEvent(new MouseEvent('click', { bubbles:true, cancelable:true }));
       add('boardBtnOpens', boardEl.hidden ? 'NO(没打开)' : 'yes');
+      // 加了昵称行后，开始页内容不能超出可视区（否则小屏会被裁掉）
+      ov.style.display = 'flex'; ov.scrollTop = 0;
+      add('overlayFits', (ov.scrollHeight <= ov.clientHeight + 1 ? 'yes' : 'NO') +
+        ' 内容' + ov.scrollHeight + '/可视' + ov.clientHeight +
+        ' 舞台' + stage.clientHeight + 'x' + stage.clientWidth);
       add('boardBtnNoStart', state === 'ready' ? 'yes' : 'NO(顺带把游戏开起来了)');
       // 关闭按钮同样要能用
       const bc = document.getElementById('boardClose');
       bc.dispatchEvent(new PointerEvent('pointerdown', { bubbles:true, cancelable:true }));
       bc.dispatchEvent(new MouseEvent('click', { bubbles:true, cancelable:true }));
       add('boardCloseWorks', boardEl.hidden ? 'yes' : 'NO');
+
+      // 13) 开始页昵称框
+      const sn = document.getElementById('startNick');
+      add('startNickExists', sn ? 'yes' : 'NO');
+      if (sn){
+        // 在昵称框里打空格不能触发跳跃 / 不能把游戏开起来
+        reset(); ov.style.display = ''; obs = [];
+        keyJump = false; keyDown = false;
+        sn.dispatchEvent(new KeyboardEvent('keydown', { code:'Space', key:' ', bubbles:true }));
+        step(); step();
+        add('nickTypingNoJump', (player.onGround && state !== 'playing' && !keyJump)
+          ? 'yes' : 'NO');
+        keyJump = false;
+        // 改开始页的昵称 → 要同步到面板输入框与本地存储
+        sn.value = '测试昵称';
+        sn.dispatchEvent(new Event('change', { bubbles:true }));
+        add('nickSyncBoth', (document.getElementById('nickInput').value === '测试昵称' &&
+                             loadName() === '测试昵称') ? 'yes' : 'NO');
+        // 还原，别把测试昵称留下
+        saveName(''); paintNames();
+        add('nickRestored', loadName() === '' ? 'yes' : 'NO');
+      }
     } catch(e){
       add('localDB', 'EXCEPTION ' + (e && e.message));
     }
