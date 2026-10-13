@@ -64,14 +64,27 @@ HTML = r"""<!doctype html>
 <title>神圣奶蛙 · Naiwa Run</title>
 <link rel="icon" href="__GODFROG__">
 <style>
-  :root{--bg:#f4ecd8;--ink:#3b2f1f;--mute:#a08a6a;--line:#d9c9a6;--day:#fff8e8;--night:#1a1f33}
+  :root{--bg:#f4ecd8;--ink:#3b2f1f;--mute:#a08a6a;--line:#d9c9a6;--day:#fff8e8;--night:#1a1f33;
+    --pad-h:0px}   /* 虚拟按键条占的高度，触屏设备下由媒体查询改成 84px */
+  /* ---------- 移动端虚拟按键 ---------- */
+  /* 放在舞台【下方】而不是浮在画面上：浮在上面会挡住迎面而来的障碍 */
+  .touchpad{display:none;gap:12px;margin-top:12px;width:min(100vw,1000px);padding:0 10px}
+  @media (pointer: coarse){ :root{--pad-h:84px} .touchpad{display:flex} }
+  body.force-pad{--pad-h:84px}            /* 调试/自检用：?pad=1 强制显示 */
+  body.force-pad .touchpad{display:flex}
+  .tbtn{flex:1;height:66px;border-radius:14px;border:1px solid var(--line);background:#fff;
+    color:var(--ink);font:700 17px "Noto Sans SC",system-ui,sans-serif;cursor:pointer;
+    -webkit-user-select:none;user-select:none;touch-action:none;
+    -webkit-tap-highlight-color:transparent}
+  .tbtn.jump{background:#fff6e0;border-color:#f3dfae}
+  .tbtn:active{transform:scale(.98);background:#ffe9b8}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
     font-family:"Noto Sans SC","PingFang SC",system-ui,sans-serif;overflow:hidden}
   body{display:flex;flex-direction:column;align-items:center;justify-content:center;
     padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
   .stage{position:relative;width:min(100vw,1000px);height:min(56vw,560px);
-    max-height:calc(100vh - 80px);background:linear-gradient(to bottom,#fff7df 0%,#f4ecd8 60%,#e9dcb8 100%);
+    max-height:calc(100vh - 80px - var(--pad-h));background:linear-gradient(to bottom,#fff7df 0%,#f4ecd8 60%,#e9dcb8 100%);
     border-radius:14px;overflow:hidden;box-shadow:0 10px 30px rgba(80,50,10,.15);user-select:none;cursor:pointer}
   .stage.night{background:linear-gradient(to bottom,#1f2540 0%,#14182a 70%,#0c0f1a 100%)}
   canvas{display:block;width:100%;height:100%}
@@ -243,6 +256,10 @@ HTML = r"""<!doctype html>
   </div>
   <div class="hint">速度 <span id="spd">5.0</span></div>
   <div class="credit">__CREDIT__</div>
+</div>
+<div class="touchpad" id="touchpad">
+  <button class="tbtn duck" id="btnDuck">下 蹲</button>
+  <button class="tbtn jump" id="btnJump">跳</button>
 </div>
 
 <script>
@@ -859,6 +876,30 @@ function startRun(){
   ov.style.display = 'none';
 }
 
+// ===================== 移动端虚拟按键 =====================
+// 用 pointerdown/up 直接驱动 keyJump / keyDown —— 和键盘走同一套输入状态，
+// 所以跳跃、下蹲、长按跳的全部逻辑都不用改。
+// setPointerCapture：手指滑出按钮范围也能收到 pointerup，不会「卡住一直跳」。
+(function bindTouchPad(){
+  const pad = document.getElementById('touchpad');
+  if (!pad) return;
+  const hold = (el, on, off) => {
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      try { el.setPointerCapture(e.pointerId); } catch(_){}
+      on();
+    });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev =>
+      el.addEventListener(ev, () => off()));
+  };
+  hold(document.getElementById('btnJump'),
+       () => { if (state === 'ready' || state === 'over') startRun(); keyJump = true; },
+       () => { keyJump = false; });
+  hold(document.getElementById('btnDuck'),
+       () => { if (state === 'ready' || state === 'over') startRun(); keyDown = true; },
+       () => { keyDown = false; });
+})();
+
 // ===================== 主循环 =====================
 function step(){
   frames++;
@@ -1239,6 +1280,8 @@ requestAnimationFrame(loop);
 const QS = new URLSearchParams(location.search);
 // 自检 / 自动游玩都是机器人在玩，绝不能把它们的分数写进真实榜单
 if (QS.get('selftest') || QS.get('auto')) allowRemoteSubmit = false;
+// ?pad=1 强制显示虚拟按键条（无头环境测不到 pointer:coarse，靠这个验证布局）
+if (QS.get('pad')) document.body.classList.add('force-pad');
 const _scale = () => cv.width / W;   // 逻辑坐标 → 设备像素
 
 function _px(lx, ly, lw, lh){
@@ -1651,7 +1694,36 @@ function runSelfTest(){
       bc.dispatchEvent(new MouseEvent('click', { bubbles:true, cancelable:true }));
       add('boardCloseWorks', boardEl.hidden ? 'yes' : 'NO');
 
-      // 13) 开始页昵称框
+      // 14) 移动端虚拟按键
+      const pad = document.getElementById('touchpad');
+      const bj = document.getElementById('btnJump'), bd = document.getElementById('btnDuck');
+      add('touchpadExists', (pad && bj && bd) ? 'yes' : 'NO');
+      if (pad && bj && bd){
+        const pr = pad.getBoundingClientRect();
+        add('padFitsViewport', pr.bottom <= window.innerHeight + 1
+          ? 'yes (底 ' + Math.round(pr.bottom) + '/视口 ' + window.innerHeight + ')'
+          : 'NO 按键条底 ' + Math.round(pr.bottom) + ' > 视口 ' + window.innerHeight);
+
+        reset(); ov.style.display = 'none'; obs = [];
+        keyJump = false; keyDown = false;
+        bj.dispatchEvent(new PointerEvent('pointerdown', { bubbles:true, cancelable:true, pointerId:1 }));
+        step(); step();
+        add('padJumpWorks', !player.onGround ? 'yes' : 'NO');
+        bj.dispatchEvent(new PointerEvent('pointerup', { bubbles:true, pointerId:1 }));
+        add('padJumpReleased', keyJump === false ? 'yes' : 'NO');
+
+        reset(); ov.style.display = 'none'; startRun(); obs = [];   // 必须真开局，否则 step() 不跑物理
+        keyJump = false; keyDown = false;
+        bd.dispatchEvent(new PointerEvent('pointerdown', { bubbles:true, cancelable:true, pointerId:2 }));
+        step(); step();
+        add('padDuckWorks', player.duck ? 'yes' : 'NO');
+        bd.dispatchEvent(new PointerEvent('pointerup', { bubbles:true, pointerId:2 }));
+        add('padDuckReleased', keyDown === false ? 'yes' : 'NO');
+        keyJump = false; keyDown = false;
+      }
+
+      // 13) 开始页昵称框（先恢复浮层，否则量到 0x0）
+      ov.style.display = 'flex';
       const sn = document.getElementById('startNick');
       add('startNickExists', sn ? 'yes' : 'NO');
       if (sn){
