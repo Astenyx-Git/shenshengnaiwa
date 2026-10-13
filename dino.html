@@ -314,6 +314,13 @@ const REMOTE = {
   user:     'shensheng',    // 在 https://tinywebdb.appinventor.space 申请的库
   secret:   'b78d47c5',     // 申请时拿到的【密钥】——注意不是注册时设的密码
   prefix:   'hnw_',  // 命名空间前缀，别蹭别人的
+  // 允许提交 / 收录的来源白名单（`location.origin`）。
+  //   · 留空数组 = 只挡 file:// 这类无来源的情况，任何 http(s) 站点都可提交
+  //   · 填了内容 = 严格只认这些来源（推荐部署后填成自己的正式域名）
+  // 例：['https://astenyx-git.github.io', 'https://你的自定义域名']
+  // ⚠️ GitHub Pages 的**项目页**共用 <user>.github.io 这个 origin，
+  //    所以同一账号下的其它项目也在白名单内 —— 要更精确得连 pathname 一起判。
+  origins:  [],
   window:   20,      // 只展示最近 20 条提交
   minGap:   3000,    // 两次提交的最小间隔
   maxScore: 99999999,
@@ -344,7 +351,22 @@ const SCAN_MAX  = 60;   // 读取时最多校验多少条，防垃圾记录拖�
 //    盐值和公式都在源码里，有心人照着实现一遍就能造出合法记录。
 //    它挡住的是【盲写】——只看到字段名、没读源码就想直接 POST 的人，
 //    以及手抖改分数的人。真要防住必须有服务端校验。
-const REC_VER   = 2;
+const REC_VER   = 3;
+// 这些来源一律不许读写全网榜：本地文件、被沙箱隔离的页面等。
+// 用户明确要求「不需要 file 能联机」。
+const BLOCKED_ORIGINS = ['file://', 'null', ''];
+
+// 当前页面来源（拿不到时给空串，一律按不允许处理）
+const currentOrigin = () => location.origin || '';
+
+// 来源是否允许读写全网榜
+function originAllowed(o){
+  if (!o || BLOCKED_ORIGINS.indexOf(o) >= 0) return false;
+  if (!/^https?:\/\//.test(o)) return false;              // 只认正经的 http(s)
+  if (!REMOTE.origins.length) return true;                // 未配白名单：放行所有 http(s)
+  return REMOTE.origins.indexOf(o) >= 0;
+}
+const originLabel = o => o || 'file://（本地文件）';
 const MAX_PLAY_FRAMES = 180000;        // 约 50 分钟，再长不合常理
 const MIN_REC_TS = 1704067200000;      // 2024-01-01，比这更早的戳视为异常
 const MAX_TS_SKEW = 86400000;          // 允许比本机时间快 1 天（时钟误差）
@@ -363,7 +385,8 @@ function scoreAfter(frames){
 }
 
 function recChecksum(rec){
-  const s = rec.v + '|' + rec.n + '|' + rec.s + '|' + rec.f + '|' + rec.t + '|' + SALT;
+  const s = rec.v + '|' + rec.n + '|' + rec.s + '|' + rec.f + '|' + rec.t + '|' +
+            rec.o + '|' + SALT;
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++){
     h ^= s.charCodeAt(i);
@@ -372,10 +395,11 @@ function recChecksum(rec){
   return h.toString(16).padStart(8, '0');
 }
 
-function makeRecord(name, score, frames, ts){
+function makeRecord(name, score, frames, ts, origin){
   const rec = { v: REC_VER, n: cleanName(name) || '匿名玩家',
                 s: Math.floor(score), f: Math.floor(frames),
-                t: Math.floor(ts || Date.now()) };
+                t: Math.floor(ts || Date.now()),
+                o: origin === undefined ? currentOrigin() : origin };
   rec.c = recChecksum(rec);
   return rec;
 }
@@ -391,6 +415,8 @@ function verifyRecord(raw){
   if (!Number.isInteger(rec.f) || rec.f < 1 || rec.f > MAX_PLAY_FRAMES) return '帧数越界';
   if (!Number.isInteger(rec.t) || rec.t < MIN_REC_TS || rec.t > Date.now() + MAX_TS_SKEW)
     return '时间戳非法';
+  if (typeof rec.o !== 'string')        return '缺来源';
+  if (!originAllowed(rec.o))            return '来源不允许（' + originLabel(rec.o) + '）';
   if (typeof rec.c !== 'string')        return '缺校验码';
   if (recChecksum(rec) !== rec.c)       return '校验码不符';
   // 核心：分数必须能由帧数精确复现
@@ -435,8 +461,10 @@ async function remotePost(params){
   }
 }
 
-async function remoteSubmit(name, score, frames){
+async function remoteSubmit(name, score, frames, origin){
+  const o = origin === undefined ? currentOrigin() : origin;
   if (!remoteOn()) throw new Error('未配置全网榜单');
+  if (!originAllowed(o)) throw new Error('当前来源不允许联机（' + originLabel(o) + '）');
   if (submitting) return false;
   if (Date.now() - lastSubmitAt < REMOTE.minGap) throw new Error('刚提交过啦，稍等一下');
   if (!(score > 0) || score > REMOTE.maxScore) throw new Error('分数不在合理范围');
@@ -444,7 +472,7 @@ async function remoteSubmit(name, score, frames){
     throw new Error('帧数不在合理范围');
   submitting = true;
   try {
-    const rec = makeRecord(name, score, frames);
+    const rec = makeRecord(name, score, frames, undefined, o);
     const tag = REMOTE.prefix + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
     await remotePost({ action:'update', tag, value: JSON.stringify(rec) });
     lastSubmitAt = Date.now();
@@ -452,8 +480,10 @@ async function remoteSubmit(name, score, frames){
   } finally { submitting = false; }
 }
 
-async function remoteTop(){
+async function remoteTop(origin){
+  const o = origin === undefined ? currentOrigin() : origin;
   if (!remoteOn()) throw new Error('未配置全网榜单');
+  if (!originAllowed(o)) throw new Error('当前来源不允许联机（' + originLabel(o) + '）');
   const bag = {};
   let no = 1;
   for (let page = 0; page < 2; page++){          // 扫两页足够覆盖最近 20 条
@@ -949,7 +979,7 @@ async function showTab(tab){
   boardTab = tab;
   document.querySelectorAll('.board .tab').forEach(b =>
     b.classList.toggle('is-on', b.dataset.tab === tab));
-  nickRowEl.hidden = (tab !== 'remote') || !remoteOn();
+  nickRowEl.hidden = (tab !== 'remote') || !remoteOn() || !originAllowed(currentOrigin());
 
   if (tab === 'local'){
     let rows = [];
@@ -966,6 +996,13 @@ async function showTab(tab){
     boardSubEl.textContent = '未配置';
     renderRows([], '全网榜单未配置');
     setMsg('需要先填 REMOTE.user / REMOTE.secret（见 README）', 'bad');
+    return;
+  }
+
+  if (!originAllowed(currentOrigin())){
+    boardSubEl.textContent = '当前来源不可联机';
+    renderRows([], '只有部署后的正式域名可以联机');
+    setMsg('当前来源：' + originLabel(currentOrigin()) + ' —— 本地文件不支持联机', 'bad');
     return;
   }
 
@@ -1017,7 +1054,9 @@ function onGameOver(){
   LDB.add({score: final, name: who, ts: Date.now(), dur: frames, spd: +speed.toFixed(1)}).catch(()=>{});
   // 配了全网榜就顺带提交一份。未配置 / 网络失败都只写提示，绝不阻断游戏。
   lastRemoteMsg = '';
-  if (remoteOn() && allowRemoteSubmit && final > 0){
+  if (remoteOn() && allowRemoteSubmit && final > 0 && !originAllowed(currentOrigin())){
+    lastRemoteMsg = '本地文件不支持联机，本局只存本机';
+  } else if (remoteOn() && allowRemoteSubmit && final > 0){
     lastRemoteMsg = '正在提交到全网榜…';
     remoteSubmit(who, final, playFrames)
       .then(() => { lastRemoteMsg = '已上榜 ✓ ' + who + ' · ' + final + ' 分'; })
@@ -1474,12 +1513,13 @@ function runSelfTest(){
     const reqs = [];
     let mode = 'write';
     const sUser = REMOTE.user, sSecret = REMOTE.secret;
+    const TO = 'https://example.github.io';   // 测试用来源（声明在外层，桩件和断言都要用）
     window.fetch = (url, opt) => {
       reqs.push({ url, body: opt && opt.body });
       if (mode === 'write') return Promise.resolve({ ok:true, text: () => Promise.resolve('{}') });
       // 混入两类伪造记录，验证校验器能把它们剔掉
-      const g1 = makeRecord('阿花', scoreAfter(3000), 3000, 1791800005000);   // 合法
-      const g2 = makeRecord('阿狗', scoreAfter(6000), 6000, 1791800009000);   // 合法
+      const g1 = makeRecord('阿花', scoreAfter(3000), 3000, 1791800005000, TO);   // 合法
+      const g2 = makeRecord('阿狗', scoreAfter(6000), 6000, 1791800009000, TO);   // 合法
       const f1 = JSON.parse(JSON.stringify(g2));                              // 手改分数
       f1.n = '改分党'; f1.s = f1.s * 10; f1.t = 1791800008000;                // → 校验码不符
       const f2 = { v: REC_VER, n:'自洽党', s: 999999, f: 100, t: 1791800007000 };
@@ -1500,14 +1540,14 @@ function runSelfTest(){
       // 分数 / 帧数校验（此时还没成功提交过，不会被限频挡住）
       const F = 1000, S = Math.floor(scoreAfter(F));
       let guard = 'NO';
-      try { await remoteSubmit('测试蛙', 0, F); } catch(e){ guard = /范围/.test(e.message) ? 'yes' : 'NO:' + e.message; }
+      try { await remoteSubmit('测试蛙', 0, F, TO); } catch(e){ guard = /范围/.test(e.message) ? 'yes' : 'NO:' + e.message; }
       add('remoteScoreGuard', guard);
       let fguard = 'NO';
-      try { await remoteSubmit('测试蛙', S, 0); } catch(e){ fguard = /帧数/.test(e.message) ? 'yes' : 'NO:' + e.message; }
+      try { await remoteSubmit('测试蛙', S, 0, TO); } catch(e){ fguard = /帧数/.test(e.message) ? 'yes' : 'NO:' + e.message; }
       add('remoteFramesGuard', fguard);
 
       // 写入：检查 POST 体里带齐了自洽字段
-      await remoteSubmit('测试蛙', S, F);
+      await remoteSubmit('测试蛙', S, F, TO);
       const b1 = new URLSearchParams(reqs[reqs.length-1].body);
       add('remoteWriteAction', b1.get('action') + ' user=' + b1.get('user'));
       add('remoteWriteTag', String(b1.get('tag')||'').indexOf(REMOTE.prefix) === 0 ? 'yes' : 'NO');
@@ -1518,22 +1558,42 @@ function runSelfTest(){
 
       // 限频：立刻再提一次应被拒
       let gap = 'NO';
-      try { await remoteSubmit('测试蛙', S, F); } catch(e){ gap = /稍等/.test(e.message) ? 'yes' : 'NO:' + e.message; }
+      try { await remoteSubmit('测试蛙', S, F, TO); } catch(e){ gap = /稍等/.test(e.message) ? 'yes' : 'NO:' + e.message; }
       add('remoteRateLimit', gap);
 
       // 读取：脏数据过滤 + 排序
       mode = 'read';
-      const res = await remoteTop();
+      const res = await remoteTop(TO);
       add('remoteReadRows', res.rows.length);                          // 应为 2（只留合法的）
       add('remoteReadRejected', res.rejected);                         // 应为 3（改分 / 不自洽 / 非 JSON）
       add('remoteReadOrderDesc', (res.rows.length >= 2 && res.rows[0].score > res.rows[1].score) ? 'yes' : 'NO');
 
       // 校验器逐条体检：合法记录必须放行，三类伪造必须各自命中原因
-      const okRec = makeRecord('正常', scoreAfter(2000), 2000, 1791800000000);
+      // 来源判断
+      add('originHere', JSON.stringify(currentOrigin()) + ' → ' +
+          (originAllowed(currentOrigin()) ? '允许' : '拦截'));
+      let ob = 'NO';
+      try { await remoteSubmit('测试蛙', S, F, 'file://'); }
+      catch(e){ ob = /来源/.test(e.message) ? 'yes' : 'NO:' + e.message; }
+      add('originBlockFile', ob);
+      let ob2 = 'NO';
+      try { await remoteTop('file://'); }
+      catch(e){ ob2 = /来源/.test(e.message) ? 'yes' : 'NO:' + e.message; }
+      add('originBlockFileRead', ob2);
+      // 白名单：临时收紧后，名单外的来源要被拒
+      const savedList = REMOTE.origins.slice();
+      REMOTE.origins = [TO];
+      add('originAllowlist', (originAllowed(TO) && !originAllowed('https://evil.example')) ? 'yes' : 'NO');
+      REMOTE.origins = savedList;
+      // 记录里带被拦来源 → 校验器要剔除
+      const badO = makeRecord('来源不对', scoreAfter(500), 500, 1791800000000, 'file://');
+      add('verifyBadOrigin', verifyRecord(JSON.stringify(badO)) || 'NO(未拦住)');
+
+      const okRec = makeRecord('正常', scoreAfter(2000), 2000, 1791800000000, TO);
       add('verifyValid', verifyRecord(JSON.stringify(okRec)) === null ? 'yes' : 'NO');
       const tampered = JSON.parse(JSON.stringify(okRec)); tampered.s += 1;
       add('verifyTampered', verifyRecord(JSON.stringify(tampered)) || 'NO(未拦住)');
-      const selfConsistent = { v: REC_VER, n:'x', s: 999999, f: 100, t: 1791800000000 };
+      const selfConsistent = { v: REC_VER, n:'x', s: 999999, f: 100, t: 1791800000000, o: TO };
       selfConsistent.c = recChecksum(selfConsistent);
       add('verifyInconsistent', verifyRecord(JSON.stringify(selfConsistent)) || 'NO(未拦住)');
       const noVer = JSON.parse(JSON.stringify(okRec)); noVer.v = 1;
@@ -1563,6 +1623,8 @@ function runSelfTest(){
     //     从当前 origin（file:// 或 http(s)）跨域读写真的通。
     if (QS.get('net')){
       if (!remoteOn()) add('remoteLive', '未配置凭据');
+      else if (!originAllowed(currentOrigin()))
+        add('remoteLive', '来源被拦：' + originLabel(currentOrigin()) + '（符合预期）');
       else {
         try {
           const res = await remoteTop();
