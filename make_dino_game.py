@@ -59,7 +59,7 @@ HTML = r"""<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">
 <meta name="theme-color" content="#f4ecd8">
 <title>神圣奶蛙 · Naiwa Run</title>
 <link rel="icon" href="__GODFROG__">
@@ -68,24 +68,48 @@ HTML = r"""<!doctype html>
     --pad-h:0px}   /* 虚拟按键条占的高度，触屏设备下由媒体查询改成 84px */
   /* ---------- 移动端虚拟按键 ---------- */
   /* 放在舞台【下方】而不是浮在画面上：浮在上面会挡住迎面而来的障碍 */
-  .touchpad{display:none;gap:12px;margin-top:12px;width:min(100vw,1000px);padding:0 10px}
-  @media (pointer: coarse){ :root{--pad-h:84px} .touchpad{display:flex} }
-  body.force-pad{--pad-h:84px}            /* 调试/自检用：?pad=1 强制显示 */
+  .touchpad{display:none;gap:12px;margin-top:12px;width:min(100%,1000px);padding:0 10px}
+  @media (pointer: coarse){
+    :root{--pad-h:calc(84px + env(safe-area-inset-bottom))}   /* 连 iPhone 底部小黑条一起预留 */
+    .touchpad{display:flex}
+  }
+  /* 横屏时屏幕高度金贵：压扁按键条，给舞台多让出几十像素 */
+  @media (pointer: coarse) and (orientation: landscape){
+    :root{--pad-h:calc(64px + env(safe-area-inset-bottom))}
+    .tbtn{height:48px;font-size:15px}
+  }
+  body.force-pad{--pad-h:calc(84px + env(safe-area-inset-bottom))}   /* 调试/自检用：?pad=1 强制显示 */
   body.force-pad .touchpad{display:flex}
   .tbtn{flex:1;height:66px;border-radius:14px;border:1px solid var(--line);background:#fff;
     color:var(--ink);font:700 17px "Noto Sans SC",system-ui,sans-serif;cursor:pointer;
     -webkit-user-select:none;user-select:none;touch-action:none;
+    -webkit-touch-callout:none;
     -webkit-tap-highlight-color:transparent}
   .tbtn.jump{background:#fff6e0;border-color:#f3dfae}
   .tbtn:active{transform:scale(.98);background:#ffe9b8}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
-    font-family:"Noto Sans SC","PingFang SC",system-ui,sans-serif;overflow:hidden}
+    font-family:"Noto Sans SC","PingFang SC",system-ui,sans-serif;overflow:hidden;
+    /* 移动端三件套：双击缩放（iOS 无视 user-scalable=no）、下拉刷新、橡皮筋回弹一律关掉 */
+    touch-action:manipulation;overscroll-behavior:none;
+    -webkit-user-select:none;user-select:none}
+  input,textarea{-webkit-user-select:text;user-select:text}
   body{display:flex;flex-direction:column;align-items:center;justify-content:center;
     padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-  .stage{position:relative;width:min(100vw,1000px);height:min(56vw,560px);
-    max-height:calc(100vh - 80px - var(--pad-h));background:linear-gradient(to bottom,#fff7df 0%,#f4ecd8 60%,#e9dcb8 100%);
-    border-radius:14px;overflow:hidden;box-shadow:0 10px 30px rgba(80,50,10,.15);user-select:none;cursor:pointer}
+  .stage{position:relative;width:min(100%,1000px);height:min(56vw,560px);
+    max-height:calc(100vh - 16px - var(--pad-h));
+    max-height:calc(100dvh - 16px - var(--pad-h));  /* dvh：随手机地址栏伸缩；100vh 会把按键条顶出屏幕 */
+    background:linear-gradient(to bottom,#fff7df 0%,#f4ecd8 60%,#e9dcb8 100%);
+    border-radius:14px;overflow:hidden;box-shadow:0 10px 30px rgba(80,50,10,.15);
+    user-select:none;-webkit-touch-callout:none;cursor:pointer;
+    touch-action:none}   /* 舞台上的一切浏览器手势（双击缩放/滚动）都不启动，点按零延迟 */
+  /* 锁死 1000:560 纵横比：宽高各自钳制的话，横屏手机/矮窗口会把贴图纵向压扁。
+     高度不够时收【宽度】留白（body 居中自动留边），而不是拉伸画面。 */
+  @supports (aspect-ratio: 1 / 1){
+    .stage{height:auto;aspect-ratio:1000/560;
+      max-width:calc((100vh - 16px - var(--pad-h)) * 1.7857);
+      max-width:calc((100dvh - 16px - var(--pad-h)) * 1.7857)}
+  }
   .stage.night{background:linear-gradient(to bottom,#1f2540 0%,#14182a 70%,#0c0f1a 100%)}
   canvas{display:block;width:100%;height:100%}
   .hud{position:absolute;top:14px;right:18px;font:600 18px ui-monospace,Menlo,Consolas,monospace;
@@ -97,7 +121,7 @@ HTML = r"""<!doctype html>
   .stage.night .hi{color:#7a82a8}
   .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
     background:rgba(255,247,223,.85);backdrop-filter:blur(2px);text-align:center;
-    padding:20px 24px;overflow-y:auto}
+    padding:20px 24px;overflow-y:auto;touch-action:pan-y}   /* 舞台 touch-action:none，这里单独放行竖向滚动 */
   .stage.night .overlay{background:rgba(20,24,42,.85);color:#fff}
   .overlay h1{margin:0 0 8px;font-size:34px;letter-spacing:1px}
   .overlay h1 small{display:block;font-size:14px;color:var(--mute);margin-top:4px;letter-spacing:0;font-weight:500}
@@ -139,7 +163,7 @@ HTML = r"""<!doctype html>
   .stage.night .board h2 small{color:#8f98bd}
   .board .empty{font-size:13px;color:var(--mute);padding:18px 0}
   .board ol{margin:0;padding:0;list-style:none;width:min(420px,100%);max-height:46%;
-    overflow-y:auto;background:#fff;border:1px solid var(--line);border-radius:12px}
+    overflow-y:auto;touch-action:pan-y;background:#fff;border:1px solid var(--line);border-radius:12px}
   .stage.night .board ol{background:#222948;border-color:#3a426a}
   .board li{display:flex;align-items:center;gap:10px;padding:8px 14px;font-size:13.5px;
     border-bottom:1px solid var(--line)}
@@ -203,6 +227,17 @@ HTML = r"""<!doctype html>
     .nickrow input{width:86px;padding:2px 6px;font-size:11.5px;line-height:1.15}
     .go{font-size:14px;padding:7px 18px;margin-top:3px}
     .boardbtn{font-size:11px;padding:4px 11px;margin-top:5px}
+    /* 小屏（竖屏手机）下排行榜改成败「竖向滚动的一页」，居中会裁掉顶部 */
+    .board{justify-content:flex-start;overflow-y:auto;gap:8px;padding:14px 16px;touch-action:pan-y}
+    .board h2{font-size:17px}
+    .board ol{max-height:none;flex:1 1 auto;min-height:0}
+  }
+  /* iOS：输入框字号 <16px 聚焦时会强制放大整页且不自动缩回 → 触屏下统一 16px。
+     必须放在容器查询块之后：@container 不加优先级，同权重靠书写顺序定胜负 */
+  @media (pointer:coarse){
+    .nickrow input{font-size:16px;width:132px}
+    .nickrow{font-size:13px}
+    .krow.kb{display:none}   /* 触屏设备上看键盘说明没意义，省下竖向空间 */
   }
 
 </style>
@@ -219,18 +254,19 @@ HTML = r"""<!doctype html>
       <small id="titleSub">Naiwa Run</small>
     </h1>
     <div class="keys">
-      <div class="krow"><b>键盘</b>
+      <div class="krow kb"><b>键盘</b>
         <span class="key">Space</span><span class="key">↑</span><span class="key">W</span><em>跳</em>
         <span class="key">↓</span><span class="key">S</span><em>下蹲</em>
       </div>
       <div class="krow"><b>触屏</b>
         <span class="key">点屏幕</span><em>跳</em>
-        <span class="key">向下滑</span><em>下蹲</em>
+        <span class="key">向下滑</span><em>蹲</em>
+        <span class="key">下方按键</span><em>跳 / 蹲</em>
       </div>
     </div>
     <div class="nickrow" id="startNickRow">
       <label for="startNick">昵称</label>
-      <input id="startNick" maxlength="12" placeholder="匿名玩家"
+      <input id="startNick" maxlength="12" placeholder="匿名玩家" enterkeyhint="done"
              autocomplete="off" spellcheck="false">
     </div>
     <button class="go" id="go">开 始 狂 奔</button>
@@ -245,7 +281,8 @@ HTML = r"""<!doctype html>
     <ol id="boardList"></ol>
     <div class="nickrow" id="nickRow" hidden>
       <label for="nickInput">昵称</label>
-      <input id="nickInput" maxlength="12" placeholder="匿名玩家" autocomplete="off" spellcheck="false">
+      <input id="nickInput" maxlength="12" placeholder="匿名玩家" enterkeyhint="done"
+             autocomplete="off" spellcheck="false">
       <button id="boardRefresh" title="刷新">↻</button>
     </div>
     <p class="boardmsg" id="boardMsg"></p>
@@ -258,8 +295,8 @@ HTML = r"""<!doctype html>
   <div class="credit">__CREDIT__</div>
 </div>
 <div class="touchpad" id="touchpad">
-  <button class="tbtn duck" id="btnDuck">下 蹲</button>
-  <button class="tbtn jump" id="btnJump">跳</button>
+  <button class="tbtn duck" id="btnDuck" aria-label="下蹲">下 蹲</button>
+  <button class="tbtn jump" id="btnJump" aria-label="跳跃">跳</button>
 </div>
 
 <script>
@@ -651,6 +688,7 @@ function fitCanvas(){
   ctx.setTransform(r.width/W * dpr, 0, 0, r.height/H * dpr, 0, 0);
 }
 window.addEventListener('resize', fitCanvas);
+if (window.visualViewport) visualViewport.addEventListener('resize', fitCanvas);   // iOS 键盘弹出/收起不触发 window.resize
 
 const imgCache = {};
 for (const k in IMG){
@@ -831,6 +869,8 @@ function spawnObs(){
 
 // ===================== 输入 =====================
 let keyJump=false, keyDown=false;
+let overAt = 0;                    // 撞死时刻，用于重开保护期
+const RESTART_GRACE_MS = 600;      // 撞死后这段时间内忽略重开：疯狂点屏的最后一下不应直接开新局
 window.addEventListener('keydown', e=>{
   // 焦点在输入框里一律让路 —— 否则在昵称框里打空格会跳跃、打 s 会下蹲
   const t = e.target;
@@ -843,7 +883,8 @@ window.addEventListener('keydown', e=>{
   }
   if (e.code==='Space' || e.code==='ArrowUp' || e.code==='KeyW'){ keyJump=true; e.preventDefault(); }
   if (e.code==='ArrowDown' || e.code==='KeyS'){ keyDown=true; e.preventDefault(); }
-  if (state==='ready' || state==='over') startRun();   // startRun 内部负责 reset
+  // e.repeat：按住不放的自动重复不能触发重开 —— 否则撞死后按着空格会无限秒重开
+  if (!e.repeat && (state==='ready' || state==='over')) startRun();
 });
 window.addEventListener('keyup', e=>{
   if (e.code==='Space' || e.code==='ArrowUp' || e.code==='KeyW') keyJump=false;
@@ -856,12 +897,20 @@ stage.addEventListener('pointerdown', e=>{
   e.preventDefault();
   if (state==='ready' || state==='over'){ startRun(); return; }
   touchStartY = e.clientY; touchStartT = performance.now();
-  keyJump = true;     // 按下立即给一次起跳
+  keyJump = true;     // 按下立即给一次起跳（点按要零延迟）
   touchDucking = false;
 });
 stage.addEventListener('pointermove', e=>{
   if (touchStartY==null) return;
-  if (e.clientY - touchStartY > 30) touchDucking = true;
+  if (e.clientY - touchStartY > 30){
+    // 点按总是立即起跳；若手指随后【下划】，说明用户要的是蹲不是跳 ——
+    // 起跳头几帧（还在上升）就直接落回地面转蹲姿，再晚就收不回了
+    if (!player.onGround && !player.dead && player.vy < 0 && frames - (player.jumpF||0) <= 6){
+      player.onGround = true; player.vy = 0; player.y = GROUND_Y - DUCK_H;
+    }
+    keyJump = false;      // 下划意图优先：撤销按住不放的「连跳」，落地后转入蹲姿
+    touchDucking = true;
+  }
 });
 stage.addEventListener('pointerup', e=>{
   keyJump = false; touchStartY = null;
@@ -871,6 +920,8 @@ goBtn.addEventListener('click', e=>{ e.stopPropagation(); startRun(); });
 
 function startRun(){
   if (state==='playing') return;
+  // 重开保护期：撞死瞬间的误触不算数，等 600ms 后再点才能开新局
+  if (state==='over' && performance.now() - overAt < RESTART_GRACE_MS) return;
   if (state==='over'){ reset(); restoreTitle(); }
   state = 'playing';
   ov.style.display = 'none';
@@ -900,6 +951,11 @@ function startRun(){
        () => { keyDown = false; });
 })();
 
+// 长按不弹系统菜单（安卓）/ 不出放大镜（iOS）—— 跑酷里长按就是蹲，弹出菜单等于灾难
+window.addEventListener('contextmenu', e=>{
+  if (e.target && e.target.closest && e.target.closest('.stage,.touchpad')) e.preventDefault();
+});
+
 // ===================== 主循环 =====================
 function step(){
   frames++;
@@ -923,7 +979,7 @@ function step(){
       // 跳跃：固定高度，没有长按变高（原版小恐龙也是固定高度）
       if (p.onGround){
         if (keyJump){
-          p.vy = JUMP_V; p.onGround = false;
+          p.vy = JUMP_V; p.onGround = false; p.jumpF = frames;   // 记录起跳帧，供「下滑取消起跳」判断
           sfx.jump();
         } else {
           p.duck = !!keyDown || touchDucking;
@@ -1211,6 +1267,7 @@ paintNames();
 boardEl.addEventListener('pointerdown', e => e.stopPropagation());
 
 function onGameOver(){
+  overAt = performance.now();          // 重开保护期起点
   const final = Math.floor(score);
   const isBest = final > hi;
   if (isBest){ hi = final; hiEl.textContent = hi; try{localStorage.setItem('naiwa_run_hi',hi)}catch(e){} }
@@ -1721,6 +1778,48 @@ function runSelfTest(){
         add('padDuckReleased', keyDown === false ? 'yes' : 'NO');
         keyJump = false; keyDown = false;
       }
+
+      // 15) 触屏手势：点屏跳 / 下滑蹲（含「下滑取消刚起跳」）/ 松手解除蹲
+      (function gestureTest(){
+        reset(); ov.style.display = 'none'; startRun(); obs = [];
+        keyJump = false; keyDown = false; touchDucking = false;
+        const sr = stage.getBoundingClientRect();
+        const sx = sr.left + sr.width * 0.5, sy0 = sr.top + sr.height * 0.5;
+        // 点按 → 立即起跳
+        stage.dispatchEvent(new PointerEvent('pointerdown', { bubbles:true, cancelable:true, pointerId:5, clientX:sx, clientY:sy0 }));
+        step(); step();
+        add('tapJumpWorks', !player.onGround ? 'yes' : 'NO');
+        // 随后下划 → 取消刚起跳的跳跃并转入蹲姿（起跳头几帧内才有效）
+        stage.dispatchEvent(new PointerEvent('pointermove', { bubbles:true, cancelable:true, pointerId:5, clientX:sx, clientY:sy0 + 60 }));
+        step();   // duck 是每帧从 touchDucking 派生的，先跑一帧物理再断言
+        add('swipeDuckCancelsJump', (player.onGround && player.duck && !keyJump) ? 'yes' : 'NO');
+        // 松手 → 蹲姿解除
+        stage.dispatchEvent(new PointerEvent('pointerup', { bubbles:true, pointerId:5 }));
+        step(); step();
+        add('swipeDuckReleased', player.duck ? 'NO' : 'yes');
+        keyJump = false; keyDown = false; touchDucking = false;
+      })();
+
+      // 16) 重开保护期：撞死瞬间的误触不能立刻开新局
+      (function graceTest(){
+        reset(); ov.style.display = 'none'; startRun(); obs = [];
+        keyJump = false; keyDown = false;
+        player.dead = true; player.vy = -8; player.y = GROUND_Y + 100;
+        let g = 0; while (state !== 'over' && g++ < 300) step();
+        const died = (state === 'over');
+        startRun();                                    // 保护期内 → 必须被忽略
+        const blocked = (state === 'over');
+        overAt = performance.now() - 10000;            // 模拟保护期已过
+        startRun();
+        add('restartGraceBlocks', (died && blocked) ? 'yes' : 'NO');
+        add('restartGraceExpires', state === 'playing' ? 'yes' : 'NO');
+      })();
+
+      // 17) 舞台纵横比必须恒等于 1000:560，否则贴图被纵向压扁（横屏手机重灾区）
+      add('stageAspect', (() => {
+        const ar = stage.clientWidth / stage.clientHeight;
+        return Math.abs(ar - 1000/560) < 0.02 ? 'yes ' + ar.toFixed(4) : 'NO ' + ar.toFixed(4);
+      })());
 
       // 13) 开始页昵称框（先恢复浮层，否则量到 0x0）
       ov.style.display = 'flex';
