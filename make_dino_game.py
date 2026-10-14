@@ -63,6 +63,31 @@ HTML = r"""<!doctype html>
 <meta name="theme-color" content="#f4ecd8">
 <title>神圣奶蛙 · Naiwa Run</title>
 <link rel="icon" href="__GODFROG__">
+<script>
+/* 最早的错误捕获（必须保持 ES5 语法，比主脚本更保守）：
+   主脚本若在加载/执行中崩溃（内核太老、语法不兼容、存储被禁等），
+   页面不会弹任何错，表现就是「整页点了没反应 / 白屏」——
+   从外面完全看不出和「按钮没绑事件」有什么区别。
+   这个陷阱把错误写到页面顶部的红条上，用户截图即可回报。 */
+window.onerror = function (msg, src, line, col) {
+  try {
+    var b = document.getElementById('boot-error');
+    if (!b) {
+      b = document.createElement('div');
+      b.id = 'boot-error';
+      b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;'
+        + 'background:#b42318;color:#fff;font:12px/1.5 monospace;'
+        + 'padding:8px 12px;word-break:break-all;';
+      (document.body || document.documentElement).appendChild(b);
+    }
+    b.textContent = '脚本错误: ' + msg + ' @' + (line || '?') + ':' + (col || '?');
+  } catch (e) {}
+};
+if (window.addEventListener) window.addEventListener('unhandledrejection', function (ev) {
+  var r = ev && ev.reason;
+  window.onerror('异步错误: ' + ((r && r.message) || r), '', 0, 0);
+});
+</script>
 <style>
   :root{--bg:#f4ecd8;--ink:#3b2f1f;--mute:#a08a6a;--line:#d9c9a6;--day:#fff8e8;--night:#1a1f33;
     --pad-h:0px}   /* 虚拟按键条占的高度，触屏设备下由媒体查询改成 84px */
@@ -119,11 +144,11 @@ HTML = r"""<!doctype html>
   .stage.night .hud small{color:#7a82a8}
   .hi{position:absolute;top:14px;left:18px;font:600 12px ui-monospace,Menlo,Consolas,monospace;color:var(--mute)}
   .stage.night .hi{color:#7a82a8}
-  .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
     background:rgba(255,247,223,.85);backdrop-filter:blur(2px);text-align:center;
     padding:20px 24px;overflow-y:auto;touch-action:pan-y}   /* 舞台 touch-action:none，这里单独放行竖向滚动 */
   .stage.night .overlay{background:rgba(20,24,42,.85);color:#fff}
-  .overlay h1{margin:0 0 8px;font-size:34px;letter-spacing:1px}
+  .overlay h1{margin:auto 0 8px;font-size:34px;letter-spacing:1px}
   .overlay h1 small{display:block;font-size:14px;color:var(--mute);margin-top:4px;letter-spacing:0;font-weight:500}
   .stage.night .overlay h1 small{color:#9aa3c8}
   .overlay h1 .logo{display:block;width:104px;height:104px;object-fit:contain;margin:0 auto 12px;
@@ -146,19 +171,27 @@ HTML = r"""<!doctype html>
     margin-top:6px;cursor:pointer}
   .stage.night .go{background:#fff8;color:var(--ink)}
   .go:active{transform:scale(.97)}
-  .boardbtn{font:600 13px ui-monospace,Menlo,Consolas,monospace;margin-top:10px;
+  .boardbtn{font:600 13px ui-monospace,Menlo,Consolas,monospace;margin-top:10px;margin-bottom:auto;
     padding:7px 18px;border-radius:999px;cursor:pointer;
     background:transparent;color:var(--mute);border:1px solid var(--line)}
   .boardbtn:hover{color:var(--ink);border-color:var(--ink)}
   .stage.night .boardbtn{color:#8f98bd;border-color:#3a426a}
   .stage.night .boardbtn:hover{color:#fff;border-color:#6a76a8}
   /* ---------- 排行榜面板（本机 / 全网两个页签）---------- */
+  /* 老内核兜底：hidden 属性的 display:none 来自 UA 样式表（权重最低），
+     内核实现有出入或遇上同权重 display 规则时可能失效 → 面板常驻挡屏。
+     加一条 !important 的作者规则保证 [hidden] 永远赢。 */
+  [hidden]{display:none!important}
   .board{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
-    justify-content:center;gap:12px;padding:26px 20px;
+    justify-content:flex-start;gap:12px;padding:26px 20px;
+    max-height:100%;overflow-y:auto;touch-action:pan-y;
     background:rgba(255,247,223,.94);backdrop-filter:blur(3px)}
   .stage.night .board{background:rgba(18,22,38,.94)}
   .board[hidden]{display:none}
-  .board h2{margin:0;font-size:20px}
+  /* 居中用 auto margin 而不是 justify-content:center：
+     内容超出面板高度时，center 会把顶部裁掉且滚不回去（overflow 死角），
+     auto margin 在放得下时同样居中、放不下时自动归零，从顶部完整可滚。 */
+  .board h2{margin:auto 0 0;font-size:20px}
   .board h2 small{display:block;font-size:11.5px;color:var(--mute);font-weight:500;margin-top:3px}
   .stage.night .board h2 small{color:#8f98bd}
   .board .empty{font-size:13px;color:var(--mute);padding:18px 0}
@@ -197,7 +230,7 @@ HTML = r"""<!doctype html>
   .board .boardmsg{margin:0;font-size:12px;color:var(--mute);min-height:16px}
   .board .boardmsg.ok{color:#15803d}
   .board .boardmsg.bad{color:#b42318}
-  .board .acts{display:flex;gap:10px}
+  .board .acts{display:flex;gap:10px;margin-bottom:auto}
   .board button{font:600 13px ui-monospace,monospace;padding:8px 18px;border-radius:999px;
     border:1px solid var(--line);background:#fff;color:#6b5635;cursor:pointer}
   .stage.night .board button{background:#2a3055;color:#cdd5ec;border-color:#3a426a}
@@ -229,6 +262,27 @@ HTML = r"""<!doctype html>
     .boardbtn{font-size:11px;padding:4px 11px;margin-top:5px}
     /* 小屏（竖屏手机）下排行榜改成败「竖向滚动的一页」，居中会裁掉顶部 */
     .board{justify-content:flex-start;overflow-y:auto;gap:8px;padding:14px 16px;touch-action:pan-y}
+    .board h2{font-size:17px}
+    .board ol{max-height:none;flex:1 1 auto;min-height:0}
+  }
+  /* ⚠️ 兼容降级：容器查询是 2022 年才普及的特性（Chromium 105+ / Safari 16+），
+     微信、QQ 内置浏览器的老内核不认识 → 上面整块失效，桌面排版原样塞进
+     手机上 200px 出头的小舞台，上下被裁掉 —— 表现就是「排行榜打不开/看不到」。
+     这里用媒体查询按视口宽度近似同一条件（手机上舞台宽 ≈ 视口宽、高 ≈ 0.56×宽，
+     视口宽 <840 ⇒ 舞台高 <470）复制一份紧凑规则；两块同时命中时声明一致，互不干扰。 */
+  @media (max-width:840px) and (pointer:coarse){
+    .overlay{padding:12px 16px}
+    .overlay h1{font-size:22px}
+    .overlay h1 .logo{width:46px;height:46px;margin-bottom:5px}
+    .overlay h1 small{font-size:11px;margin-top:1px}
+    .overlay .keys{margin:7px 0 9px;gap:3px}
+    .krow{font-size:11px}
+    .key{font-size:10.5px;padding:2px 6px}
+    .nickrow{font-size:11px}
+    .nickrow input{width:86px;padding:2px 6px;font-size:11.5px;line-height:1.15}
+    .go{font-size:14px;padding:7px 18px;margin-top:3px}
+    .boardbtn{font-size:11px;padding:4px 11px;margin-top:5px}
+    .board{gap:8px;padding:14px 16px}
     .board h2{font-size:17px}
     .board ol{max-height:none;flex:1 1 auto;min-height:0}
   }

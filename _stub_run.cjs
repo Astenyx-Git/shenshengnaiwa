@@ -7,9 +7,12 @@ const fs = require('fs');
 const htmlPath = process.argv[2] || 'index.html';
 const search = process.argv[3] || '?selftest=1';
 const html = fs.readFileSync(htmlPath, 'utf8');
-const m = html.match(/<script>([\s\S]*)<\/script>/);
-if (!m) { console.error('FATAL: script block not found'); process.exit(1); }
-const gameScript = m[1];
+// 页面里现在有多个 <script>（head 里有一个 ES5 错误陷阱 + 主脚本）。
+// 贪婪正则会把中间的 </script>、HTML 一起吞进来 → 语法错误。
+// 改为逐块非贪婪匹配，取【最长】的一块 = 游戏主脚本。
+const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(x => x[1]);
+if (!blocks.length) { console.error('FATAL: script block not found'); process.exit(1); }
+const gameScript = blocks.reduce((a, b) => (b.length > a.length ? b : a));
 
 // ---------- 事件注册表 ----------
 const listeners = new Map(); // target -> Map(type -> [fn])
