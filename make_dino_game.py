@@ -243,12 +243,11 @@ if (window.addEventListener) window.addEventListener('unhandledrejection', funct
   .stage.night .credit a:hover{color:#fff}
   .hint{position:absolute;bottom:8px;right:14px;font:500 11.5px ui-monospace,monospace;color:var(--mute)}
   .stage.night .hint{color:#7a82a8}
-  /* ⚠️ 这个块必须放在样式表【最后】—— @container 不增加优先级，
-     同优先级下靠书写顺序决定胜负，放前面会被后面的 .nickrow 等默认档覆盖。
-     舞台尺寸随视口变化，用容器查询按「舞台实际高度」收紧开始页排版，
-     保证小屏也不被裁掉（自检里有 overlayFits 断言守着） */
-  .stage{container-type:size}
-  @container (max-height: 470px){
+  /* ---------- 响应式紧凑排版（纯视口媒体查询 —— 所有内核从远古时代就认识，零兼容风险） ----------
+     应用户要求弃用 @container（2022 年特性，微信/QQ 老内核不认识时【整块静默失效】，
+     曾导致排行榜在手机上「打不开/看不到」）。逗号 = 或，覆盖三类小舞台：
+     竖屏手机（视口宽 <840 ⇒ 舞台高 ≈ 0.56×宽 <470）、横屏手机 / 矮桌面窗口（视口高 <520）。 */
+  @media (max-width:840px), (max-height:520px){
     .overlay{padding:12px 16px}
     .overlay h1{font-size:22px}
     .overlay h1 .logo{width:46px;height:46px;margin-bottom:5px}
@@ -260,34 +259,13 @@ if (window.addEventListener) window.addEventListener('unhandledrejection', funct
     .nickrow input{width:86px;padding:2px 6px;font-size:11.5px;line-height:1.15}
     .go{font-size:14px;padding:7px 18px;margin-top:3px}
     .boardbtn{font-size:11px;padding:4px 11px;margin-top:5px}
-    /* 小屏（竖屏手机）下排行榜改成败「竖向滚动的一页」，居中会裁掉顶部 */
-    .board{justify-content:flex-start;overflow-y:auto;gap:8px;padding:14px 16px;touch-action:pan-y}
-    .board h2{font-size:17px}
-    .board ol{max-height:none;flex:1 1 auto;min-height:0}
-  }
-  /* ⚠️ 兼容降级：容器查询是 2022 年才普及的特性（Chromium 105+ / Safari 16+），
-     微信、QQ 内置浏览器的老内核不认识 → 上面整块失效，桌面排版原样塞进
-     手机上 200px 出头的小舞台，上下被裁掉 —— 表现就是「排行榜打不开/看不到」。
-     这里用媒体查询按视口宽度近似同一条件（手机上舞台宽 ≈ 视口宽、高 ≈ 0.56×宽，
-     视口宽 <840 ⇒ 舞台高 <470）复制一份紧凑规则；两块同时命中时声明一致，互不干扰。 */
-  @media (max-width:840px) and (pointer:coarse){
-    .overlay{padding:12px 16px}
-    .overlay h1{font-size:22px}
-    .overlay h1 .logo{width:46px;height:46px;margin-bottom:5px}
-    .overlay h1 small{font-size:11px;margin-top:1px}
-    .overlay .keys{margin:7px 0 9px;gap:3px}
-    .krow{font-size:11px}
-    .key{font-size:10.5px;padding:2px 6px}
-    .nickrow{font-size:11px}
-    .nickrow input{width:86px;padding:2px 6px;font-size:11.5px;line-height:1.15}
-    .go{font-size:14px;padding:7px 18px;margin-top:3px}
-    .boardbtn{font-size:11px;padding:4px 11px;margin-top:5px}
+    /* 小舞台下排行榜收紧间距；面板本体 base 已是可滚动 + auto-margin 居中，绝不裁切 */
     .board{gap:8px;padding:14px 16px}
     .board h2{font-size:17px}
     .board ol{max-height:none;flex:1 1 auto;min-height:0}
   }
   /* iOS：输入框字号 <16px 聚焦时会强制放大整页且不自动缩回 → 触屏下统一 16px。
-     必须放在容器查询块之后：@container 不加优先级，同权重靠书写顺序定胜负 */
+     必须放在上面的紧凑块之后：同权重规则靠书写顺序定胜负 */
   @media (pointer:coarse){
     .nickrow input{font-size:16px;width:132px}
     .nickrow{font-size:13px}
@@ -305,7 +283,7 @@ if (window.addEventListener) window.addEventListener('unhandledrejection', funct
     <h1 id="title">
       <img class="logo" src="__GODFROG__" alt="神圣奶蛙">
       <span id="titleText">神圣奶蛙</span>
-      <small id="titleSub">Naiwa Run</small>
+      <small id="titleSub">Naiwa Run · v18</small>
     </h1>
     <div class="keys">
       <div class="krow kb"><b>键盘</b>
@@ -1352,7 +1330,7 @@ function onGameOver(){
 // 重开时把文案恢复成初始状态
 function restoreTitle(){
   titleTextEl.textContent = '神圣奶蛙';
-  titleSubEl.textContent  = 'Naiwa Run';
+  titleSubEl.textContent  = 'Naiwa Run · v18';   // 版本徽标：让用户/开发者一眼确认加载的不是缓存旧版
   goBtn.textContent = '开 始 狂 奔';
   keysEl.style.display = 'flex';
   paintNames();
