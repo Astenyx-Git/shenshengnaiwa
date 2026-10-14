@@ -248,6 +248,14 @@ if (window.addEventListener) window.addEventListener('unhandledrejection', funct
      曾导致排行榜在手机上「打不开/看不到」）。逗号 = 或，覆盖三类小舞台：
      竖屏手机（视口宽 <840 ⇒ 舞台高 ≈ 0.56×宽 <470）、横屏手机 / 矮桌面窗口（视口高 <520）。 */
   @media (max-width:840px), (max-height:520px){
+    /* 响应式画布：小屏上舞台铺满整块屏幕（宽满、高到按键条/刘海），游戏带贴底、
+       上方由渲染器延伸成天空 —— 不再是「上下大幅留白夹一条横板」。
+       顶部让出刘海/Dynamic Island（safe-area-inset-top），底部让出按键条+Home 条。 */
+    body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+    .stage{max-width:none;
+      height:calc(100vh - var(--pad-h) - env(safe-area-inset-top));
+      height:calc(100dvh - var(--pad-h) - env(safe-area-inset-top));
+      max-height:none;border-radius:0;box-shadow:none}
     .overlay{padding:12px 16px}
     .overlay h1{font-size:22px}
     .overlay h1 .logo{width:46px;height:46px;margin-bottom:5px}
@@ -283,7 +291,7 @@ if (window.addEventListener) window.addEventListener('unhandledrejection', funct
     <h1 id="title">
       <img class="logo" src="__GODFROG__" alt="神圣奶蛙">
       <span id="titleText">神圣奶蛙</span>
-      <small id="titleSub">Naiwa Run · v18</small>
+      <small id="titleSub">Naiwa Run · v19</small>
     </h1>
     <div class="keys">
       <div class="krow kb"><b>键盘</b>
@@ -712,12 +720,20 @@ const hiEl = document.getElementById('hi');
 const goBtn = document.getElementById('go');
 const spdEl = document.getElementById('spd');
 
+// skyTop：画布顶边对应的逻辑 y。<0 = 舞台比游戏带高（竖屏手机），上方是天空延伸区；
+// >0 = 舞台比游戏带矮（横屏手机 / 矮窗口），游戏带顶部被裁掉一点天空。由 fitCanvas 维护。
+let skyTop = 0;
 function fitCanvas(){
   const r = stage.getBoundingClientRect();
   const dpr = Math.min(window.devicePixelRatio||1, 2);
   cv.width = Math.round(r.width * dpr);
   cv.height = Math.round(r.height * dpr);
-  ctx.setTransform(r.width/W * dpr, 0, 0, r.height/H * dpr, 0, 0);
+  // 响应式画布：宽度定标（逻辑宽 1000 ↔ 舞台宽），游戏带（逻辑高 560）锚定画布【底部】。
+  // 竖屏手机：上方多出的高度全部延伸成天空（渐变与云画满整屏）——不再是上下留白夹横条；
+  // 地面 GROUND_Y 始终在画布底部上方 100 逻辑像素，玩法坐标（跳跃高度/障碍）一概不变。
+  const s = r.width / W;
+  ctx.setTransform(dpr*s, 0, 0, dpr*s, 0, dpr*(r.height - H*s));
+  skyTop = H - r.height/s;
 }
 window.addEventListener('resize', fitCanvas);
 if (window.visualViewport) visualViewport.addEventListener('resize', fitCanvas);   // iOS 键盘弹出/收起不触发 window.resize
@@ -1059,7 +1075,8 @@ function step(){
     }
 
     // 云
-    if (Math.random() < 0.012) clouds_.push({x: W+30, y: 60 + Math.random()*180, s: 0.4 + Math.random()*0.6});
+    // 云均匀撒满整片可见天空（skyTop<0 时含高处延伸区；桌面 skyTop=0 时≈原来的 40..240）
+    if (Math.random() < 0.012) clouds_.push({x: W+30, y: skyTop + 40 + Math.random()*Math.max(1, 240 - skyTop - 40), s: 0.4 + Math.random()*0.6});
     for (const c of clouds_) c.x -= speed * c.s * 0.5;
     clouds_ = clouds_.filter(c => c.x > -120);
 
@@ -1083,7 +1100,7 @@ function loop(){ step(); requestAnimationFrame(loop); }
 function draw(){
   // 天空：canvas 是 alpha:false 的不透明画布，必须每帧用【不透明】色铺满，
   // 否则上一帧的精灵会残留成拖影（用 rgba(..,0) 半透明填充等于没擦除）。
-  const grd = ctx.createLinearGradient(0,0,0,H);
+  const grd = ctx.createLinearGradient(0,skyTop,0,H);
   if (dayMode){
     grd.addColorStop(0,   '#fff7df');
     grd.addColorStop(0.6, '#f4ecd8');
@@ -1093,7 +1110,7 @@ function draw(){
     grd.addColorStop(0.6, '#14182a');
     grd.addColorStop(1,   '#0c0f1a');
   }
-  ctx.fillStyle = grd; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = grd; ctx.fillRect(0,skyTop,W,H-skyTop);
 
   // 云
   for (const c of clouds_){
@@ -1330,7 +1347,7 @@ function onGameOver(){
 // 重开时把文案恢复成初始状态
 function restoreTitle(){
   titleTextEl.textContent = '神圣奶蛙';
-  titleSubEl.textContent  = 'Naiwa Run · v18';   // 版本徽标：让用户/开发者一眼确认加载的不是缓存旧版
+  titleSubEl.textContent  = 'Naiwa Run · v19';   // 版本徽标：让用户/开发者一眼确认加载的不是缓存旧版
   goBtn.textContent = '开 始 狂 奔';
   keysEl.style.display = 'flex';
   paintNames();
@@ -1856,6 +1873,25 @@ function runSelfTest(){
       add('stageAspect', (() => {
         const ar = stage.clientWidth / stage.clientHeight;
         return Math.abs(ar - 1000/560) < 0.02 ? 'yes ' + ar.toFixed(4) : 'NO ' + ar.toFixed(4);
+      })());
+
+      // 17b) 响应式画布：fitCanvas 必须让游戏带贴底 —— 舞台更高时天空向上延伸（skyTop<0），
+      //      更矮时裁掉带顶（skyTop>0），还原 1000×560 后 skyTop 归零（玩法坐标不受影响）
+      add('skyBandAnchor', (() => {
+        const orig = stage.getBoundingClientRect;
+        try {
+          stage.getBoundingClientRect = () => ({width:390, height:760, top:0, left:0, right:390, bottom:760});
+          fitCanvas();
+          const tallSky = skyTop;                       // 期望 ≈ 560 - 760/(390/1000) ≈ -1389
+          stage.getBoundingClientRect = () => ({width:844, height:326, top:0, left:0, right:844, bottom:326});
+          fitCanvas();
+          const cropTop = skyTop;                       // 期望 ≈ 560 - 326/(844/1000) ≈ +174
+          return (tallSky < -1000 && cropTop > 100) ? 'yes ' + tallSky.toFixed(0) + '/' + cropTop.toFixed(0)
+                                                    : 'NO ' + tallSky.toFixed(0) + '/' + cropTop.toFixed(0);
+        } finally {
+          stage.getBoundingClientRect = orig;
+          fitCanvas();                                  // 还原 1000×560
+        }
       })());
 
       // 13) 开始页昵称框（先恢复浮层，否则量到 0x0）
